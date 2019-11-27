@@ -21,8 +21,8 @@
 import os
 
 DB_NAME = os.environ.get("DB_NAME", "polkascan")
-DB_HOST = os.environ.get("DB_HOST", "mysql")
-DB_PORT = os.environ.get("DB_PORT", 3306)
+DB_HOST = os.environ.get("DB_HOST", "127.0.0.1")
+DB_PORT = os.environ.get("DB_PORT", 33061)
 DB_USERNAME = os.environ.get("DB_USERNAME", "root")
 DB_PASSWORD = os.environ.get("DB_PASSWORD", "root")
 
@@ -30,7 +30,7 @@ DB_CONNECTION = os.environ.get("DB_CONNECTION", "mysql+mysqlconnector://{}:{}@{}
     DB_USERNAME, DB_PASSWORD, DB_HOST, DB_PORT, DB_NAME
 ))
 
-SUBSTRATE_RPC_URL = os.environ.get("SUBSTRATE_RPC_URL", "http://substrate-node:9933/")
+SUBSTRATE_RPC_URL = os.environ.get("SUBSTRATE_RPC_URL", "http://127.0.0.1:9933/")
 SUBSTRATE_ADDRESS_TYPE = int(os.environ.get("SUBSTRATE_ADDRESS_TYPE", 42))
 
 # Simulate Scale encoded extrinsics per block for e.g. performance tests
@@ -48,6 +48,8 @@ DEBUG = bool(os.environ.get("DEBUG", False))
 
 LEGACY_SESSION_VALIDATOR_LOOKUP = bool(os.environ.get("LEGACY_SESSION_VALIDATOR_LOOKUP", False))
 
+SHARDS_TABLE = {"shard.0": "http://127.0.0.1:9933/", "shard.1": "http://127.0.0.1:19933/", "shard.2": "http://127.0.0.1:29933/",
+                "shard.3": "http://127.0.0.1:39933/"}
 
 # Constants
 

@@ -73,6 +73,11 @@ class Block(BaseModel):
     logs = sa.Column(sa.JSON(), default=None, server_default=None)
     spec_version_id = sa.Column(sa.String(64), nullable=False)
     debug_info = sa.Column(sa.JSON(), default=None, server_default=None)
+    mpmr = sa.Column(sa.String(66), nullable=False)
+    validators = sa.Column(sa.String(66), nullable=False)
+    shard_num = sa.Column(sa.Integer(), index=True, nullable=False)
+    reward = sa.Column(sa.Numeric(precision=65, scale=0), nullable=False)
+    fee = sa.Column(sa.Numeric(precision=65, scale=0), nullable=False)
 
     def set_datetime(self, datetime):
         self.datetime = datetime
@@ -167,6 +172,7 @@ class Event(BaseModel):
     attributes = sa.Column(sa.JSON())
 
     codec_error = sa.Column(sa.Boolean())
+    shard_num = sa.Column(sa.Integer(), index=True, nullable=False)
 
     def serialize_id(self):
         return '{}-{}'.format(self.block_id, self.event_idx)
@@ -209,6 +215,8 @@ class Extrinsic(BaseModel):
     spec_version_id = sa.Column(sa.Integer())
 
     codec_error = sa.Column(sa.Boolean(), default=False)
+    shard_num = sa.Column(sa.Integer(), index=True, nullable=False)
+    datetime = sa.Column(sa.DateTime(timezone=True))
 
     def serialize_id(self):
         return '{}-{}'.format(self.block_id, self.extrinsic_idx)
@@ -222,6 +230,7 @@ class Log(BaseModel):
     type_id = sa.Column(sa.Integer(), index=True)
     type = sa.Column(sa.String(64))
     data = sa.Column(sa.JSON())
+    shard_num = sa.Column(sa.Integer(), index=True, nullable=False)
 
 
 class Account(BaseModel):
@@ -237,6 +246,7 @@ class Account(BaseModel):
     balance = sa.Column(sa.Numeric(precision=65, scale=0), nullable=False)
     created_at_block = sa.Column(sa.Integer(), nullable=False)
     updated_at_block = sa.Column(sa.Integer(), nullable=False)
+    shard_num = sa.Column(sa.Integer(), index=True, nullable=False)
 
 
 class AccountAudit(BaseModel):

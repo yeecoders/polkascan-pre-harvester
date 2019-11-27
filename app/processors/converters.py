@@ -67,7 +67,10 @@ class PolkascanHarvesterService(BaseService):
 
         # Set block time of parent block
         child_block = Block.query(self.db_session).filter_by(parent_hash=block.hash).first()
-        block.set_datetime(child_block.datetime)
+
+        if child_block.datetime is not None:
+            {block.set_datetime(child_block.datetime)}
+
 
         # Retrieve genesis accounts
         storage_call = RuntimeStorage.query(self.db_session).filter_by(
@@ -138,6 +141,11 @@ class PolkascanHarvesterService(BaseService):
                             )
 
                             account_index_audit.save(self.db_session)
+                            block.shard_num = 0
+                            block.mpmr = '0x11b994cbad6fb5012798388f32bb202817cf59e10675bae2217727cddc59ac95'
+                            block.validators = '0x11b994cbad6fb5012798388f32bb202817cf59e10675bae2217727cddc59ac95'
+                            block.reward = 100
+                            block.fee = 10
 
         block.save(self.db_session)
 
@@ -494,7 +502,7 @@ class PolkascanHarvesterService(BaseService):
             block_id = int(block_id, 16)
 
         # ==== Get block runtime from Substrate ==================
-        json_runtime_version = substrate.get_block_runtime_version(block_hash)
+        json_runtime_version = substrate.get_block_runtime_version()
 
         # Get spec version
         spec_version = json_runtime_version.get('specVersion', 0)
@@ -504,7 +512,7 @@ class PolkascanHarvesterService(BaseService):
         # ==== Get parent block runtime ===================
 
         if block_id > 0:
-            json_parent_runtime_version = substrate.get_block_runtime_version(parent_hash)
+            json_parent_runtime_version = substrate.get_block_runtime_version()
 
             parent_spec_version = json_parent_runtime_version.get('specVersion', 0)
 
@@ -554,9 +562,12 @@ class PolkascanHarvesterService(BaseService):
         extrinsic_success_idx = {}
         events = []
 
+        print("get_block_events---params")
+        print(block_hash)
         try:
             events_decoder = substrate.get_block_events(block_hash, self.metadata_store[parent_spec_version])
-
+            print("i am events_decoder&&&&&&&&&&&")
+            print(events_decoder)
             event_idx = 0
 
             for event in events_decoder.elements:
@@ -575,7 +586,8 @@ class PolkascanHarvesterService(BaseService):
                     system=int(event.value['module_id'] == 'system'),
                     module=int(event.value['module_id'] != 'system'),
                     attributes=event.value['params'],
-                    codec_error=False
+                    codec_error=False,
+                    shard_num=0
                 )
 
                 # Process event
@@ -666,7 +678,9 @@ class PolkascanHarvesterService(BaseService):
                 spec_version_id=parent_spec_version,
                 success=int(extrinsic_success),
                 error=int(not extrinsic_success),
-                codec_error=False
+                codec_error=False,
+                shard_num=0,
+                datetime=block.datetime
             )
             model.save(self.db_session)
 
@@ -715,7 +729,11 @@ class PolkascanHarvesterService(BaseService):
             block.debug_info = json_block
 
         # ==== Save data block ==================================
-
+        block.shard_num = 0
+        block.mpmr = '0x11b994cbad6fb5012798388f32bb202817cf59e10675bae2217727cddc59ac95'
+        block.validators = '0x11b994cbad6fb5012798388f32bb202817cf59e10675bae2217727cddc59ac95'
+        block.reward = 100
+        block.fee = 10
         block.save(self.db_session)
 
         return block
@@ -813,7 +831,7 @@ class PolkascanHarvesterService(BaseService):
                 substrate.get_block_number(finalized_block_hash) - FINALIZATION_BY_BLOCK_CONFIRMATIONS, 0
             )
         else:
-            finalized_block_hash = substrate.get_chain_finalised_head()
+            finalized_block_hash = substrate.get_chain_head()
             finalized_block_number = substrate.get_block_number(finalized_block_hash)
 
         # 2. Check integrity head
@@ -821,8 +839,8 @@ class PolkascanHarvesterService(BaseService):
 
         if not integrity_head.value:
             # Only continue if block #1 exists
-            if Block.query(self.db_session).filter_by(id=1).count() == 0:
-                raise BlockIntegrityError('Chain not at genesis')
+            # if Block.query(self.db_session).filter_by(id=1).count() == 0:
+            #     raise BlockIntegrityError('BlockIntegrityError-Chain not at genesis')
 
             integrity_head.value = 0
         else:
@@ -832,11 +850,12 @@ class PolkascanHarvesterService(BaseService):
         end_block_id = finalized_block_number
         chunk_size = 1000
         parent_block = None
+        print('== outer Start integrity checks from {} to {} =='.format(start_block_id, end_block_id))
 
         if start_block_id < end_block_id:
             # Continue integrity check
 
-            # print('== Start integrity checks from {} to {} =='.format(start_block_id, end_block_id))
+            print('== Start integrity checks from {} to {} =='.format(start_block_id, end_block_id))
 
             for block_nr in range(start_block_id, end_block_id, chunk_size):
                 # TODO replace limit with filter_by block range
@@ -919,15 +938,18 @@ class PolkascanHarvesterService(BaseService):
 
                 if not block:
                     self.db_session.commit()
-                    return {'error': 'Chain not at genesis'}
+                    return {'error': 'not block Chain not at genesis'}
 
                 if block.id == 1:
                     # Add genesis block
-                    block = self.add_block(block.parent_hash)
+                    has_block = Block.query(self.db_session).filter_by(hash=block.parent_hash).first()
+                    print(has_block)
+                    if has_block is not None:
+                     block = self.add_block(block.parent_hash)
 
                 if block.id != 0:
                     self.db_session.commit()
-                    return {'error': 'Chain not at genesis'}
+                    return {'error': 'block.id != 0--Chain not at genesis'}
 
                 self.process_genesis(block)
 

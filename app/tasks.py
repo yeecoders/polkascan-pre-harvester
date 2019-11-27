@@ -35,18 +35,41 @@ from app.processors.converters import PolkascanHarvesterService, HarvesterCouldN
     BlockIntegrityError
 from substrateinterface import SubstrateInterface
 
-from app.settings import DB_CONNECTION, DEBUG, SUBSTRATE_RPC_URL, TYPE_REGISTRY
+from app.settings import DB_CONNECTION, DEBUG, SUBSTRATE_RPC_URL, TYPE_REGISTRY, SHARDS_TABLE
 
-CELERY_BROKER = os.environ.get('CELERY_BROKER')
-CELERY_BACKEND = os.environ.get('CELERY_BACKEND')
+CELERY_BROKER = 'redis://localhost:6379/0'
+CELERY_BACKEND = 'redis://localhost:6379/0'
 
 app = celery.Celery('tasks', broker=CELERY_BROKER, backend=CELERY_BACKEND)
 
+# app.conf.beat_schedule = {
+#     'shard0-check-head-10-seconds': {
+#         'task': 'app.tasks.start_harvester',
+#         'schedule': 10.0,
+#         'args': ("shard.0",)
+#     },
+#     'shard1-check-head-10-seconds': {
+#         'task': 'app.tasks.start_harvester',
+#         'schedule': 10.0,
+#         'args': ("shard.1",)
+#     },
+#     'shard2-check-head-10-seconds': {
+#         'task': 'app.tasks.start_harvester',
+#         'schedule': 10.0,
+#         'args': ("shard.2",)
+#     },
+#     'shard3-check-head-10-seconds': {
+#         'task': 'app.tasks.start_harvester',
+#         'schedule': 10.0,
+#         'args': ("shard.3",)
+#     },
+# }
+
 app.conf.beat_schedule = {
-    'check-head-10-seconds': {
+    'shard0-check-head-10-seconds': {
         'task': 'app.tasks.start_harvester',
         'schedule': 10.0,
-        'args': ()
+        'args': ("shard.0",)
     },
 }
 
@@ -74,7 +97,10 @@ class BaseTask(celery.Task):
 
 @app.task(base=BaseTask, bind=True)
 def accumulate_block_recursive(self, block_hash, end_block_hash=None):
-
+    shard = self.request.args[0]
+    print('start accumulate_block_recursive block_hash {} =='.format(block_hash))
+   # substrate_url = SHARDS_TABLE[shard]
+    print('== start_accumulate_block_recursive substrate_url {} =='.format(self.request))
     harvester = PolkascanHarvesterService(self.session, type_registry=TYPE_REGISTRY)
     harvester.metadata_store = self.metadata_store
 
@@ -142,7 +168,10 @@ def accumulate_block_recursive(self, block_hash, end_block_hash=None):
 @app.task(base=BaseTask, bind=True)
 def start_sequencer(self):
     sequencer_task = Status.get_status(self.session, 'SEQUENCER_TASK_ID')
-
+    #shard = self.request.args[0]
+    print('start_sequencer {} =='.format(sequencer_task.value))
+    #substrate_url = SHARDS_TABLE[shard]
+    print('== start_sequencer substrate_url {} =='.format(self.request.args))
     if sequencer_task.value:
         task_result = AsyncResult(sequencer_task.value)
         if not task_result or task_result.ready():
@@ -157,7 +186,6 @@ def start_sequencer(self):
         try:
             result = harvester.start_sequencer()
         except BlockIntegrityError as e:
-            start_sequencer.delay()
             result = {'result': str(e)}
 
         sequencer_task.value = None
@@ -172,8 +200,11 @@ def start_sequencer(self):
 
 @app.task(base=BaseTask, bind=True)
 def start_harvester(self, check_gaps=False):
-
-    substrate = SubstrateInterface(SUBSTRATE_RPC_URL)
+    shard = self.request.args[0]
+    print("start_harvester")
+    substrate_url = SHARDS_TABLE[shard]
+    print('== start_harvester substrate_url {} =='.format(substrate_url))
+    substrate = SubstrateInterface(substrate_url)
 
     block_sets = []
 
@@ -182,7 +213,6 @@ def start_harvester(self, check_gaps=False):
         remaining_sets_result = Block.get_missing_block_ids(self.session)
 
         for block_set in remaining_sets_result:
-
             # Get start and end block hash
             end_block_hash = substrate.get_block_hash(int(block_set['block_from']))
             start_block_hash = substrate.get_block_hash(int(block_set['block_to']))

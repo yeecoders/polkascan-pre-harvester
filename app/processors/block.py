@@ -55,7 +55,7 @@ class LogBlockProcessor(BlockProcessor):
                 type=log_digest.index_value,
                 data=log_digest.value,
             )
-
+            log.shard_num = 0
             log.save(db_session)
 
     def accumulation_revert(self, db_session):
@@ -66,7 +66,7 @@ class LogBlockProcessor(BlockProcessor):
 class BlockTotalProcessor(BlockProcessor):
 
     def sequencing_hook(self, db_session, parent_block_data, parent_sequenced_block_data):
-
+        print("BlockTotalProcessor$$$$$$$$$$$$$$$$$$$")
         if not parent_sequenced_block_data:
             parent_sequenced_block_data = {}
 
@@ -145,7 +145,7 @@ class AccountBlockProcessor(BlockProcessor):
                 if account_audit.type_id != ACCOUNT_AUDIT_TYPE_NEW:
                     account.is_reaped = True
                     account.count_reaped = 1
-
+            account.shard_num = 0
             account.save(db_session)
 
 
