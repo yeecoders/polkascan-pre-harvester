@@ -42,6 +42,7 @@ from app.models.data import Extrinsic, Block, Event, Runtime, RuntimeModule, Run
     AccountIndexAudit, ReorgBlock, ReorgExtrinsic, ReorgEvent, ReorgLog
 from app.processors.block import *
 from app.utils import bech32
+import json
 
 class HarvesterCouldNotAddBlock(Exception):
     pass
@@ -691,11 +692,11 @@ class PolkascanHarvesterService(BaseService):
         # ==== Get block events from Substrate ==================
         extrinsic_success_idx = {}
         events = []
-
+        block_reward = '0x'
+        coinbase = '0'
         try:
             events_decoder = substrate.get_block_events(block_hash, self.metadata_store[parent_spec_version])
 
-            print('start add_block events_decoder {} =='.format(events_decoder))
             if events_decoder != None:
 
                 event_idx = 0
@@ -721,6 +722,16 @@ class PolkascanHarvesterService(BaseService):
                     )
 
                     # Process event
+                    if event.value['event_id'] == 'Reward':
+
+                        data1 = event.value['params'][0]
+                        json_str = json.dumps(data1)
+                        data2 = json.loads(json_str)
+                        block_reward = data2['value']['block_reward']
+                        coinbase = data2['value']['coinbase']
+
+
+                        print(' event.value['']get {} ==block_id--{}'.format(data2['value'],block_id))
 
                     if event.value['phase'] == 0:
                         block.count_events_extrinsic += 1
@@ -875,8 +886,8 @@ class PolkascanHarvesterService(BaseService):
         # ==== Save data block ==================================
         block.mpmr = '0x11b994cbad6fb5012798388f32bb202817cf59e10675bae2217727cddc59ac95'
         block.validators = '0x11b994cbad6fb5012798388f32bb202817cf59e10675bae2217727cddc59ac95'
-        block.reward = '0x11b994cbad6fb5012798388f32bb202817cf59e10675bae2217727cddc59ac95'
-        block.fee = 10
+        block.reward = coinbase
+        block.fee = int(block_reward)
         block.save(self.db_session)
         print('start add_block return {} =='.format("return"))
 

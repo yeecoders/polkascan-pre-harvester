@@ -194,7 +194,6 @@ def start_sequencer(self):
 
 @app.task(base=BaseTask, bind=True)
 def start_harvester(self, check_gaps=False, shard=None):
-    print(self.request)
     shard = self.request.args[0]
     if shard is None:
         raise HarvesterNotshardParamsError('params shard is missing.. stopping harvester ')
