@@ -24,7 +24,7 @@ import dateutil
 from sqlalchemy.orm.exc import NoResultFound
 
 from app.models.data import Log, AccountAudit, Account, AccountIndexAudit, AccountIndex
-from app.settings import ACCOUNT_AUDIT_TYPE_NEW, ACCOUNT_AUDIT_TYPE_REAPED, ACCOUNT_INDEX_AUDIT_TYPE_NEW, \
+from app.settings import HRP, ACCOUNT_AUDIT_TYPE_NEW, ACCOUNT_AUDIT_TYPE_REAPED, ACCOUNT_INDEX_AUDIT_TYPE_NEW, \
     ACCOUNT_INDEX_AUDIT_TYPE_REAPED, DEMOCRACY_PROPOSAL_AUDIT_TYPE_PROPOSED, DEMOCRACY_PROPOSAL_AUDIT_TYPE_TABLED, \
     DEMOCRACY_REFERENDUM_AUDIT_TYPE_STARTED, DEMOCRACY_REFERENDUM_AUDIT_TYPE_PASSED, \
     DEMOCRACY_REFERENDUM_AUDIT_TYPE_NOTPASSED, DEMOCRACY_REFERENDUM_AUDIT_TYPE_CANCELLED, \
@@ -36,6 +36,7 @@ from scalecodec.base import ScaleBytes
 from app.processors.base import BlockProcessor
 from scalecodec.block import LogDigest
 import random
+from app.utils import bech32
 
 class LogBlockProcessor(BlockProcessor):
 
@@ -137,7 +138,7 @@ class AccountBlockProcessor(BlockProcessor):
 
                 account = Account(
                     id=account_audit.account_id,
-                    address=ss58_encode(account_audit.account_id, SUBSTRATE_ADDRESS_TYPE),
+                    address=bech32.encode(HRP, bytes().fromhex(account_audit.account_id)),
                     created_at_block=self.block.id,
                     updated_at_block=self.block.id,
                     balance=0
@@ -167,10 +168,7 @@ class AccountIndexBlockProcessor(BlockProcessor):
                 account_index = AccountIndex(
                     id=account_index_audit.account_index_id,
                     account_id=account_index_audit.account_id,
-                    short_address=ss58_encode_account_index(
-                        account_index_audit.account_index_id,
-                        SUBSTRATE_ADDRESS_TYPE
-                    ),
+                    short_address=bech32.encode(HRP, bytes().fromhex(account_index_audit.account_index_id)),
                     created_at_block=self.block.id,
                     updated_at_block=self.block.id
                 )

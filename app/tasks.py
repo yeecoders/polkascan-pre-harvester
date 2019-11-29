@@ -180,6 +180,8 @@ def start_sequencer(self):
         try:
             for n in range(1, len(SHARDS_TABLE) + 1):
                 block = Block.query(self.session).filter_by(bid=1, shard_num=n - 1).first()
+                if not block:
+                    return {'result': 'Sequencer wating!'}
                 harvester.process_shard_genesis(block, SHARDS_TABLE['shard.' + str(n - 1)])
 
         except BlockIntegrityError as e:

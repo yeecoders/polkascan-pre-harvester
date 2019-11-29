@@ -41,7 +41,7 @@ from app.models.data import Extrinsic, Block, Event, Runtime, RuntimeModule, Run
     RuntimeEvent, RuntimeEventAttribute, RuntimeType, RuntimeStorage, BlockTotal, RuntimeConstant, AccountAudit, \
     AccountIndexAudit, ReorgBlock, ReorgExtrinsic, ReorgEvent, ReorgLog
 from app.processors.block import *
-
+from app.utils import bech32
 
 class HarvesterCouldNotAddBlock(Exception):
     pass
@@ -121,6 +121,7 @@ class PolkascanHarvesterService(BaseService):
                     )
 
                     if genesis_accounts:
+                        print('storage_hash start  genesis_accounts {} =='.format(genesis_accounts))
                         block.count_accounts_new += len(genesis_accounts)
                         block.count_accounts += len(genesis_accounts)
 
@@ -140,7 +141,7 @@ class PolkascanHarvesterService(BaseService):
                             if account_total <= 0:
                                 account = Account(
                                     id=account_audit.account_id,
-                                    address=ss58_encode(account_audit.account_id, SUBSTRATE_ADDRESS_TYPE),
+                                    address=bech32.encode(HRP, bytes().fromhex(account_audit.account_id)),
                                     created_at_block=account_audit.block_id,
                                     updated_at_block=account_audit.block_id,
                                     balance=0

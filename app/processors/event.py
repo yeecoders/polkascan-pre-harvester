@@ -66,7 +66,7 @@ class NewAccountEventProcessor(EventProcessor):
             if account_total <= 0:
                 account = Account(
                     id=account_audit.account_id,
-                    address=ss58_encode(account_audit.account_id, SUBSTRATE_ADDRESS_TYPE),
+                    address=bech32.encode(HRP, bytes().fromhex(account_audit.account_id)),
                     created_at_block=account_audit.block_id,
                     updated_at_block=account_audit.block_id,
                     balance=0
@@ -138,7 +138,7 @@ class ReapedAccount(EventProcessor):
             if account_total <= 0:
                 account = Account(
                     id=account_audit.account_id,
-                    address=ss58_encode(account_audit.account_id, SUBSTRATE_ADDRESS_TYPE),
+                    address=bech32.encode(HRP, bytes().fromhex(account_audit.account_id)),
                     created_at_block=account_audit.block_id,
                     updated_at_block=account_audit.block_id,
                     balance=0

@@ -32,7 +32,7 @@ DB_CONNECTION = os.environ.get("DB_CONNECTION", "mysql+mysqlconnector://{}:{}@{}
 
 SUBSTRATE_RPC_URL = os.environ.get("SUBSTRATE_RPC_URL", "http://127.0.0.1:9933/")
 SUBSTRATE_ADDRESS_TYPE = int(os.environ.get("SUBSTRATE_ADDRESS_TYPE", 42))
-
+HRP = os.environ.get("HRP", "tyee")
 # Simulate Scale encoded extrinsics per block for e.g. performance tests
 # Example:
 # SUBSTRATE_MOCK_EXTRINSICS = ["0xa50383ff76729e17ad31469debcb60f3ce3622f79143e442e77b58d6e2195d9ea998680d283c1715298aada424241284e4c3d2bec57a8b89e1bfa5502c0f84866cb94f64b666c04ceb88b7274612fea6bcdf7683701b96c13264d5326ecdcd5661df5502d500080008000f69590e7c83f3b71826537aff19ce9d173efeb887cca69c02b991f6ca75a8f43e05e5ef718a29d168e8df39367398cc60b9b45c7815fb2bfa362693a281676e1c7e66ad780b39e767f22efe0065929db7c69cef006d69a0ea8739c22fa1a06cf257d1cc14c340bdf2944ba8615b2a32cdc5774c9f93af6ef7eb3eab07caf94f00"] * 5000
@@ -48,16 +48,13 @@ DEBUG = bool(os.environ.get("DEBUG", False))
 
 LEGACY_SESSION_VALIDATOR_LOOKUP = bool(os.environ.get("LEGACY_SESSION_VALIDATOR_LOOKUP", False))
 
-SHARDS_TABLE = {"shard.0": "http://127.0.0.1:9933/", "shard.1": "http://127.0.0.1:19933/",
-                "shard.2": "http://127.0.0.1:29933/",
-                "shard.3": "http://127.0.0.1:39933/"}
+SHARDS_TABLE = {"shard.0": "http://127.0.0.1:9033/", "shard.1": "http://127.0.0.1:9133/",
+                "shard.2": "http://127.0.0.1:9233/",
+                "shard.3": "http://127.0.0.1:9333/"}
 
-SHARDS_TABLE = {"shard.0": "http://127.0.0.1:9933/", "shard.1": "http://127.0.0.1:19933/",
-                "shard.2": "http://127.0.0.1:29933/",
-                "shard.3": "http://127.0.0.1:39933/"}
 
-NUM = {"http://127.0.0.1:9933/": "0", "http://127.0.0.1:19933/": "1", "http://127.0.0.1:29933/": "2",
-       "http://127.0.0.1:39933/": "3"}
+NUM = {"http://127.0.0.1:9033/": "0", "http://127.0.0.1:9133/": "1", "http://127.0.0.1:9233/": "2",
+       "http://127.0.0.1:9333/": "3"}
 # Constants
 
 ACCOUNT_AUDIT_TYPE_NEW = 1
