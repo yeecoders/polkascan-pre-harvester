@@ -31,39 +31,17 @@ from sqlalchemy.sql import func
 
 from app.models.data import Extrinsic, Block, BlockTotal
 from app.models.harvester import Status
-from app.processors.converters import PolkascanHarvesterService, HarvesterCouldNotAddBlock, BlockAlreadyAdded, \
+from app.processors.converters import PolkascanHarvesterService, HarvesterCouldNotAddBlock, \
+    HarvesterNotshardParamsError, BlockAlreadyAdded, \
     BlockIntegrityError
 from substrateinterface import SubstrateInterface
 
-from app.settings import DB_CONNECTION, DEBUG, SUBSTRATE_RPC_URL, TYPE_REGISTRY, SHARDS_TABLE
+from app.settings import DB_CONNECTION, DEBUG, SUBSTRATE_RPC_URL, TYPE_REGISTRY, SHARDS_TABLE, NUM
 
 CELERY_BROKER = 'redis://localhost:6379/0'
 CELERY_BACKEND = 'redis://localhost:6379/0'
 
 app = celery.Celery('tasks', broker=CELERY_BROKER, backend=CELERY_BACKEND)
-
-# app.conf.beat_schedule = {
-#     'shard0-check-head-10-seconds': {
-#         'task': 'app.tasks.start_harvester',
-#         'schedule': 10.0,
-#         'args': ("shard.0",)
-#     },
-#     'shard1-check-head-10-seconds': {
-#         'task': 'app.tasks.start_harvester',
-#         'schedule': 10.0,
-#         'args': ("shard.1",)
-#     },
-#     'shard2-check-head-10-seconds': {
-#         'task': 'app.tasks.start_harvester',
-#         'schedule': 10.0,
-#         'args': ("shard.2",)
-#     },
-#     'shard3-check-head-10-seconds': {
-#         'task': 'app.tasks.start_harvester',
-#         'schedule': 10.0,
-#         'args': ("shard.3",)
-#     },
-# }
 
 app.conf.beat_schedule = {
     'shard0-check-head-10-seconds': {
@@ -71,7 +49,40 @@ app.conf.beat_schedule = {
         'schedule': 10.0,
         'args': ("shard.0",)
     },
+    'shard1-check-head-10-seconds': {
+        'task': 'app.tasks.start_harvester',
+        'schedule': 10.0,
+        'args': ("shard.1",)
+    },
+    'shard2-check-head-10-seconds': {
+        'task': 'app.tasks.start_harvester',
+        'schedule': 10.0,
+        'args': ("shard.2",)
+    },
+    'shard3-check-head-10-seconds': {
+        'task': 'app.tasks.start_harvester',
+        'schedule': 10.0,
+        'args': ("shard.3",)
+    },
+    'start_sequencer-500-seconds': {
+        'task': 'app.tasks.start_sequencer',
+        'schedule': 50.0,
+        'args': ()
+    },
 }
+
+# app.conf.beat_schedule = {
+#     'shard0-check-head-10-seconds': {
+#         'task': 'app.tasks.start_harvester',
+#         'schedule': 20.0,
+#         'args': ("shard.0",)
+#     },
+#     'start_sequencer-500-seconds': {
+#         'task': 'app.tasks.start_sequencer',
+#         'schedule': 50.0,
+#         'args': ()
+#     },
+# }
 
 app.conf.timezone = 'UTC'
 
@@ -96,28 +107,21 @@ class BaseTask(celery.Task):
 
 
 @app.task(base=BaseTask, bind=True)
-def accumulate_block_recursive(self, block_hash, end_block_hash=None):
-    shard = self.request.args[0]
+def accumulate_block_recursive(self, block_hash, end_block_hash=None, substrate_url=None):
     print('start accumulate_block_recursive block_hash {} =='.format(block_hash))
-   # substrate_url = SHARDS_TABLE[shard]
-    print('== start_accumulate_block_recursive substrate_url {} =='.format(self.request))
+    print('start accumulate_block_recursive substrate_url {} =='.format(substrate_url))
+
     harvester = PolkascanHarvesterService(self.session, type_registry=TYPE_REGISTRY)
     harvester.metadata_store = self.metadata_store
 
     # If metadata store isn't initialized yet, perform some tests
-    if not harvester.metadata_store:
-        print('Init: create entrypoints')
-        # Check if blocks exists
-        max_block_id = self.session.query(func.max(Block.id)).one()[0]
+    if not substrate_url:
+        return
+        # shard_num = NUM[substrate_url]
+        # print('start accumulate_block_recursive shard_num {} =='.format(shard_num))
 
-        if not max_block_id:
-            # Speed up accumulating by creating several entry points
-            substrate = SubstrateInterface(SUBSTRATE_RPC_URL)
-            block_nr = substrate.get_block_number(block_hash)
-            if block_nr > 100:
-                for entry_point in range(0, block_nr, block_nr // 4)[1:-1]:
-                    entry_point_hash = substrate.get_block_hash(entry_point)
-                    accumulate_block_recursive.delay(entry_point_hash)
+    substrate = SubstrateInterface(substrate_url)
+    block_nr = substrate.get_block_number(block_hash)
 
     block = None
     max_sequenced_block_id = False
@@ -125,22 +129,16 @@ def accumulate_block_recursive(self, block_hash, end_block_hash=None):
     add_count = 0
 
     try:
-
-        for nr in range(0, 10):
+        for nr in range(0, block_nr):
             if not block or block.id > 0:
                 # Process block
-                block = harvester.add_block(block_hash)
-
+                block = harvester.add_block(block_hash, substrate_url)
                 print('+ Added {} '.format(block_hash))
-
                 add_count += 1
-
                 self.session.commit()
-
                 # Break loop if targeted end block hash is reached
                 if block_hash == end_block_hash or block.id == 0:
                     break
-
                 # Continue with parent block hash
                 block_hash = block.parent_hash
 
@@ -153,7 +151,7 @@ def accumulate_block_recursive(self, block_hash, end_block_hash=None):
     except BlockAlreadyAdded as e:
         print('. Skipped {} '.format(block_hash))
     except IntegrityError as e:
-        print('. Skipped duplicate {} '.format(block_hash))
+        print('. Skipped duplicate {}=={} '.format(block_hash, e))
     except Exception as exc:
         print('! ERROR adding {}'.format(block_hash))
         raise HarvesterCouldNotAddBlock(block_hash) from exc
@@ -167,40 +165,38 @@ def accumulate_block_recursive(self, block_hash, end_block_hash=None):
 
 @app.task(base=BaseTask, bind=True)
 def start_sequencer(self):
-    sequencer_task = Status.get_status(self.session, 'SEQUENCER_TASK_ID')
-    #shard = self.request.args[0]
-    print('start_sequencer {} =='.format(sequencer_task.value))
-    #substrate_url = SHARDS_TABLE[shard]
-    print('== start_sequencer substrate_url {} =='.format(self.request.args))
-    if sequencer_task.value:
-        task_result = AsyncResult(sequencer_task.value)
-        if not task_result or task_result.ready():
-            sequencer_task.value = None
-            sequencer_task.save(self.session)
+    harvester = PolkascanHarvesterService(self.session, type_registry=TYPE_REGISTRY)
 
-    if sequencer_task.value is None:
-        sequencer_task.value = self.request.id
-        sequencer_task.save(self.session)
+    sequencer_genesis_task = Status.query(self.session).filter_by(key='process_genesis_status').count()
 
-        harvester = PolkascanHarvesterService(self.session, type_registry=TYPE_REGISTRY)
+    print('get sequencer_genesis_task {} =='.format(sequencer_genesis_task))
+
+    if sequencer_genesis_task <= 0:
+        status = Status(
+            key='process_genesis_status',
+            value='yes',
+        )
+        status.save(self.session)
         try:
-            result = harvester.start_sequencer()
+            for n in range(1, len(SHARDS_TABLE) + 1):
+                block = Block.query(self.session).filter_by(bid=1, shard_num=n - 1).first()
+                harvester.process_shard_genesis(block, SHARDS_TABLE['shard.' + str(n - 1)])
+
         except BlockIntegrityError as e:
             result = {'result': str(e)}
-
-        sequencer_task.value = None
-        sequencer_task.save(self.session)
-
+            return result
         self.session.commit()
 
-        return result
-    else:
-        return {'result': 'Sequencer already running'}
+    return {'result': 'Sequencer is completed'}
 
 
 @app.task(base=BaseTask, bind=True)
-def start_harvester(self, check_gaps=False):
+def start_harvester(self, check_gaps=False, shard=None):
+    print(self.request)
     shard = self.request.args[0]
+    if shard is None:
+        raise HarvesterNotshardParamsError('params shard is missing.. stopping harvester ')
+
     print("start_harvester")
     substrate_url = SHARDS_TABLE[shard]
     print('== start_harvester substrate_url {} =='.format(substrate_url))
@@ -208,32 +204,32 @@ def start_harvester(self, check_gaps=False):
 
     block_sets = []
 
-    if check_gaps:
-        # Check for gaps between already harvested blocks and try to fill them first
-        remaining_sets_result = Block.get_missing_block_ids(self.session)
-
-        for block_set in remaining_sets_result:
-            # Get start and end block hash
-            end_block_hash = substrate.get_block_hash(int(block_set['block_from']))
-            start_block_hash = substrate.get_block_hash(int(block_set['block_to']))
-
-            # Start processing task
-            accumulate_block_recursive.delay(start_block_hash, end_block_hash)
-
-            block_sets.append({
-                'start_block_hash': start_block_hash,
-                'end_block_hash': end_block_hash
-            })
+    # if check_gaps:
+    #     # Check for gaps between already harvested blocks and try to fill them first
+    #     remaining_sets_result = Block.get_missing_block_ids(self.session)
+    #
+    #     for block_set in remaining_sets_result:
+    #         # Get start and end block hash
+    #         end_block_hash = substrate.get_block_hash(int(block_set['block_from']))
+    #         start_block_hash = substrate.get_block_hash(int(block_set['block_to']))
+    #
+    #         # Start processing task
+    #         accumulate_block_recursive.delay(start_block_hash, end_block_hash)
+    #
+    #         block_sets.append({
+    #             'start_block_hash': start_block_hash,
+    #             'end_block_hash': end_block_hash
+    #         })
 
     # Start sequencer
-    sequencer_task = start_sequencer.delay()
+    # sequencer_task = start_sequencer.delay(substrate_url)
 
     # Continue from current finalised head
 
     start_block_hash = substrate.get_chain_head()
     end_block_hash = None
 
-    accumulate_block_recursive.delay(start_block_hash, end_block_hash)
+    accumulate_block_recursive.delay(start_block_hash, end_block_hash, substrate_url)
 
     block_sets.append({
         'start_block_hash': start_block_hash,
@@ -243,5 +239,6 @@ def start_harvester(self, check_gaps=False):
     return {
         'result': 'Harvester job started',
         'block_sets': block_sets,
-        'sequencer_task_id': sequencer_task.task_id
+        'sequencer_task_id': self.request.id
+
     }

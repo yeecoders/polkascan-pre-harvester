@@ -38,10 +38,9 @@ from app.settings import SUBSTRATE_RPC_URL, TYPE_REGISTRY
 
 class PolkascanStartHarvesterResource(BaseResource):
 
-    #@validate(load_schema('start_harvester'))
-    def on_post(self, req, resp):
-
-        task = start_harvester.delay(check_gaps=True)
+    # @validate(load_schema('start_harvester'))
+    def on_post(self, req, resp, shard):
+        task = start_harvester.delay(check_gaps=True, shard=shard)
 
         resp.status = falcon.HTTP_201
 
@@ -56,7 +55,6 @@ class PolkascanStartHarvesterResource(BaseResource):
 class PolkascanStopHarvesterResource(BaseResource):
 
     def on_post(self, req, resp):
-
         resp.status = falcon.HTTP_404
 
         resp.media = {
@@ -70,7 +68,6 @@ class PolkascanStopHarvesterResource(BaseResource):
 class PolkaScanCheckHarvesterTaskResource(BaseResource):
 
     def on_get(self, req, resp, task_id):
-
         task_result = AsyncResult(task_id)
         result = {'status': task_result.status, 'result': task_result.result}
         resp.status = falcon.HTTP_200

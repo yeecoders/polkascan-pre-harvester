@@ -18,12 +18,13 @@
 #
 #  converters.py
 import math
+import random
 
 from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.models.harvester import Status
-from app.processors import NewSessionEventProcessor, Log
+from app.processors import Log
 from app.type_registry import load_type_registry
 from scalecodec import U32
 from scalecodec.base import ScaleBytes, ScaleDecoder, RuntimeConfiguration
@@ -34,11 +35,12 @@ from scalecodec.block import ExtrinsicsDecoder, EventsDecoder, ExtrinsicsBlock61
 from app.processors.base import BaseService, ProcessorRegistry
 from substrateinterface import SubstrateInterface, SubstrateRequestException
 
-from app.settings import DEBUG, SUBSTRATE_RPC_URL, ACCOUNT_AUDIT_TYPE_NEW, ACCOUNT_INDEX_AUDIT_TYPE_NEW, \
+from app.settings import DEBUG, SUBSTRATE_RPC_URL, ACCOUNT_AUDIT_TYPE_NEW, NUM, ACCOUNT_INDEX_AUDIT_TYPE_NEW, \
     SUBSTRATE_MOCK_EXTRINSICS, FINALIZATION_BY_BLOCK_CONFIRMATIONS
 from app.models.data import Extrinsic, Block, Event, Runtime, RuntimeModule, RuntimeCall, RuntimeCallParam, \
     RuntimeEvent, RuntimeEventAttribute, RuntimeType, RuntimeStorage, BlockTotal, RuntimeConstant, AccountAudit, \
     AccountIndexAudit, ReorgBlock, ReorgExtrinsic, ReorgEvent, ReorgLog
+from app.processors.block import *
 
 
 class HarvesterCouldNotAddBlock(Exception):
@@ -53,6 +55,10 @@ class BlockIntegrityError(Exception):
     pass
 
 
+class HarvesterNotshardParamsError(Exception):
+    pass
+
+
 class PolkascanHarvesterService(BaseService):
 
     def __init__(self, db_session, type_registry='default'):
@@ -62,8 +68,9 @@ class PolkascanHarvesterService(BaseService):
             RuntimeConfiguration().update_type_registry(load_type_registry(type_registry))
         self.metadata_store = {}
 
-    def process_genesis(self, block):
-        substrate = SubstrateInterface(SUBSTRATE_RPC_URL)
+    def process_shard_genesis(self, block, substrate_url=None):
+        substrate = SubstrateInterface(substrate_url)
+        print('start process_shard_genesis  {} =='.format(substrate_url))
 
         # Set block time of parent block
         child_block = Block.query(self.db_session).filter_by(parent_hash=block.hash).first()
@@ -71,6 +78,117 @@ class PolkascanHarvesterService(BaseService):
         if child_block.datetime is not None:
             {block.set_datetime(child_block.datetime)}
 
+        # Retrieve genesis accounts
+        storage_call = RuntimeStorage.query(self.db_session).filter_by(
+            module_id='indices',
+            name='NextEnumSet',
+            spec_version=block.spec_version_id
+        ).first()
+
+        if storage_call:
+            genesis_account_page_count = substrate.get_storage(
+                block_hash=block.hash,
+                module="Indices",
+                function="NextEnumSet",
+                return_scale_type=storage_call.get_return_type(),
+                hasher=storage_call.type_hasher
+            ) or 0
+
+            # Get Accounts on EnumSet
+            storage_call = RuntimeStorage.query(self.db_session).filter_by(
+                module_id='indices',
+                name='EnumSet',
+                spec_version=block.spec_version_id
+            ).first()
+
+            if storage_call:
+
+                block.count_accounts_new = 0
+                block.count_accounts = 0
+
+                for enum_set_nr in range(0, genesis_account_page_count + 1):
+
+                    account_index_u32 = U32()
+                    account_index_u32.encode(enum_set_nr)
+
+                    genesis_accounts = substrate.get_storage(
+                        block_hash=block.hash,
+                        module="Indices",
+                        function="EnumSet",
+                        params=account_index_u32.data.data.hex(),
+                        return_scale_type=storage_call.get_return_type(),
+                        hasher=storage_call.type_hasher
+                    )
+
+                    if genesis_accounts:
+                        block.count_accounts_new += len(genesis_accounts)
+                        block.count_accounts += len(genesis_accounts)
+
+                        for idx, account_id in enumerate(genesis_accounts):
+                            account_audit = AccountAudit(
+                                account_id=account_id.replace('0x', ''),
+                                block_id=block.id,
+                                extrinsic_idx=None,
+                                event_idx=None,
+                                type_id=ACCOUNT_AUDIT_TYPE_NEW
+                            )
+
+                            account_total = Account.query(self.db_session).filter_by(
+                                id=account_audit.account_id).count()
+                            print('process_shard_genesis get account_total {} =='.format(account_total))
+
+                            if account_total <= 0:
+                                account = Account(
+                                    id=account_audit.account_id,
+                                    address=ss58_encode(account_audit.account_id, SUBSTRATE_ADDRESS_TYPE),
+                                    created_at_block=account_audit.block_id,
+                                    updated_at_block=account_audit.block_id,
+                                    balance=0
+                                )
+                                if account_audit.type_id == ACCOUNT_AUDIT_TYPE_REAPED:
+                                    account.count_reaped += 1
+                                    account.is_reaped = True
+
+                                elif account_audit.type_id == ACCOUNT_AUDIT_TYPE_NEW:
+                                    account.is_reaped = False
+
+                                account.updated_at_block = account_audit.block_id
+                                # If reaped but does not exist, create new account for now
+                                if account_audit.type_id != ACCOUNT_AUDIT_TYPE_NEW:
+                                    account.is_reaped = True
+                                    account.count_reaped = 1
+                                account.shard_num = NUM[substrate_url]
+
+                                print('start add  account {} =='.format(account))
+
+                                account.save(self.db_session)
+                                self.db_session.commit()
+
+                            account_audit.save(self.db_session)
+
+                            account_index_id = enum_set_nr * 64 + idx
+
+                            account_index_audit = AccountIndexAudit(
+                                account_index_id=account_index_id,
+                                account_id=account_id.replace('0x', ''),
+                                block_id=block.id,
+                                extrinsic_idx=None,
+                                event_idx=None,
+                                type_id=ACCOUNT_INDEX_AUDIT_TYPE_NEW
+                            )
+
+                            account_index_audit.save(self.db_session)
+
+        block.save(self.db_session)
+
+    def process_genesis(self, block, substrate_url=None):
+        substrate = SubstrateInterface(substrate_url)
+
+        # Set block time of parent block
+        child_block = Block.query(self.db_session).filter_by(parent_hash=block.hash).first()
+
+        if child_block.datetime is not None:
+            {block.set_datetime(child_block.datetime)}
 
         # Retrieve genesis accounts
         storage_call = RuntimeStorage.query(self.db_session).filter_by(
@@ -149,13 +267,10 @@ class PolkascanHarvesterService(BaseService):
 
         block.save(self.db_session)
 
-        # Create initial session
-        initial_session_event = NewSessionEventProcessor(block, Event(), None)
-        initial_session_event.add_session(db_session=self.db_session, session_id=0)
-
     def process_metadata_type(self, type_string, spec_version):
 
-        runtime_type = RuntimeType.query(self.db_session).filter_by(type_string=type_string, spec_version=spec_version).first()
+        runtime_type = RuntimeType.query(self.db_session).filter_by(type_string=type_string,
+                                                                    spec_version=spec_version).first()
 
         if not runtime_type:
 
@@ -187,8 +302,9 @@ class PolkascanHarvesterService(BaseService):
 
             runtime_type.save(self.db_session)
 
-    def process_metadata(self, runtime_version_data, block_hash):
-
+    def process_metadata(self, runtime_version_data, block_hash, substrate_url=None):
+        if substrate_url is None:
+            raise HarvesterNotshardParamsError('params shard is missing.. stopping harvester ')
         spec_version = runtime_version_data.get('specVersion', 0)
 
         # Check if metadata already in store
@@ -209,7 +325,7 @@ class PolkascanHarvesterService(BaseService):
                 try:
 
                     # ==== Get block Metadata from Substrate ==================
-                    substrate = SubstrateInterface(SUBSTRATE_RPC_URL)
+                    substrate = SubstrateInterface(substrate_url)
                     metadata_decoder = substrate.get_block_metadata(block_hash)
 
                     # Store metadata in database
@@ -303,8 +419,8 @@ class PolkascanHarvesterService(BaseService):
 
                             # Check if module exists
                             if RuntimeModule.query(self.db_session).filter_by(
-                                spec_version=spec_version,
-                                module_id=module.get_identifier()
+                                    spec_version=spec_version,
+                                    module_id=module.get_identifier()
                             ).count() == 0:
                                 module_id = module.get_identifier()
                             else:
@@ -477,19 +593,28 @@ class PolkascanHarvesterService(BaseService):
                 except SQLAlchemyError as e:
                     self.db_session.rollback()
 
-    def add_block(self, block_hash):
+    def add_block(self, block_hash, substrate_url=None):
+        print('start add_block substrate_url {} =='.format(substrate_url))
+        print('start add_block block_hash {} =='.format(block_hash))
+        if substrate_url is None:
+            raise HarvesterNotshardParamsError('params shard is missing.. stopping harvester ')
 
+        shard_num = NUM[substrate_url]
+        print('start shard_num shard_num {} =='.format(shard_num))
         # Check if block is already process
         if Block.query(self.db_session).filter_by(hash=block_hash).count() > 0:
-            raise BlockAlreadyAdded(block_hash)
+            print('start add_block BlockAlreadyAdded {} =='.format("BlockAlreadyAdded"))
 
+            raise BlockAlreadyAdded(block_hash)
         # Extract data from json_block
-        substrate = SubstrateInterface(SUBSTRATE_RPC_URL)
+
+        substrate = SubstrateInterface(substrate_url)
 
         if SUBSTRATE_MOCK_EXTRINSICS:
             substrate.mock_extrinsics = SUBSTRATE_MOCK_EXTRINSICS
 
         json_block = substrate.get_chain_block(block_hash)
+        print('start add_block json_block {} =='.format(json_block))
 
         parent_hash = json_block['block']['header'].pop('parentHash')
         block_id = json_block['block']['header'].pop('number')
@@ -507,7 +632,9 @@ class PolkascanHarvesterService(BaseService):
         # Get spec version
         spec_version = json_runtime_version.get('specVersion', 0)
 
-        self.process_metadata(json_runtime_version, block_hash)
+        if Runtime.query(self.db_session).filter_by(impl_name='yee-rs').count() <= 0:
+            print('start add_block process_metadata {} =='.format("process_metadata"))
+            self.process_metadata(json_runtime_version, block_hash, substrate_url)
 
         # ==== Get parent block runtime ===================
 
@@ -516,14 +643,14 @@ class PolkascanHarvesterService(BaseService):
 
             parent_spec_version = json_parent_runtime_version.get('specVersion', 0)
 
-            self.process_metadata(json_parent_runtime_version, parent_hash)
+            self.process_metadata(json_parent_runtime_version, parent_hash, substrate_url)
         else:
             parent_spec_version = spec_version
 
         # ==== Set initial block properties =====================
 
         block = Block(
-            id=block_id,
+            bid=block_id,
             parent_id=block_id - 1,
             hash=block_hash,
             parent_hash=parent_hash,
@@ -551,7 +678,9 @@ class PolkascanHarvesterService(BaseService):
             range100000=math.floor(block_id / 100000),
             range1000000=math.floor(block_id / 1000000),
             spec_version_id=spec_version,
-            logs=digest_logs
+            logs=digest_logs,
+            shard_num=shard_num
+
         )
 
         # Set temp helper variables
@@ -562,64 +691,64 @@ class PolkascanHarvesterService(BaseService):
         extrinsic_success_idx = {}
         events = []
 
-        print("get_block_events---params")
-        print(block_hash)
         try:
             events_decoder = substrate.get_block_events(block_hash, self.metadata_store[parent_spec_version])
-            print("i am events_decoder&&&&&&&&&&&")
-            print(events_decoder)
-            event_idx = 0
 
-            for event in events_decoder.elements:
+            print('start add_block events_decoder {} =='.format(events_decoder))
+            if events_decoder != None:
 
-                event.value['module_id'] = event.value['module_id'].lower()
+                event_idx = 0
 
-                model = Event(
-                    block_id=block_id,
-                    event_idx=event_idx,
-                    phase=event.value['phase'],
-                    extrinsic_idx=event.value['extrinsic_idx'],
-                    type=event.value['type'],
-                    spec_version_id=parent_spec_version,
-                    module_id=event.value['module_id'],
-                    event_id=event.value['event_id'],
-                    system=int(event.value['module_id'] == 'system'),
-                    module=int(event.value['module_id'] != 'system'),
-                    attributes=event.value['params'],
-                    codec_error=False,
-                    shard_num=0
-                )
+                for event in events_decoder.elements:
 
-                # Process event
+                    event.value['module_id'] = event.value['module_id'].lower()
 
-                if event.value['phase'] == 0:
-                    block.count_events_extrinsic += 1
-                elif event.value['phase'] == 1:
-                    block.count_events_finalization += 1
+                    model = Event(
+                        block_id=block_id,
+                        event_idx=event_idx,
+                        phase=event.value['phase'],
+                        extrinsic_idx=event.value['extrinsic_idx'],
+                        type=event.value['type'],
+                        spec_version_id=parent_spec_version,
+                        module_id=event.value['module_id'],
+                        event_id=event.value['event_id'],
+                        system=int(event.value['module_id'] == 'system'),
+                        module=int(event.value['module_id'] != 'system'),
+                        attributes=event.value['params'],
+                        codec_error=False,
+                        shard_num=shard_num
+                    )
 
-                if event.value['module_id'] == 'system':
+                    # Process event
 
-                    block.count_events_system += 1
+                    if event.value['phase'] == 0:
+                        block.count_events_extrinsic += 1
+                    elif event.value['phase'] == 1:
+                        block.count_events_finalization += 1
 
-                    # Store result of extrinsic
-                    if event.value['event_id'] == 'ExtrinsicSuccess':
-                        extrinsic_success_idx[event.value['extrinsic_idx']] = True
-                        block.count_extrinsics_success += 1
+                    if event.value['module_id'] == 'system':
 
-                    if event.value['event_id'] == 'ExtrinsicFailed':
-                        extrinsic_success_idx[event.value['extrinsic_idx']] = False
-                        block.count_extrinsics_error += 1
-                else:
+                        block.count_events_system += 1
 
-                    block.count_events_module += 1
+                        # Store result of extrinsic
+                        if event.value['event_id'] == 'ExtrinsicSuccess':
+                            extrinsic_success_idx[event.value['extrinsic_idx']] = True
+                            block.count_extrinsics_success += 1
 
-                model.save(self.db_session)
+                        if event.value['event_id'] == 'ExtrinsicFailed':
+                            extrinsic_success_idx[event.value['extrinsic_idx']] = False
+                            block.count_extrinsics_error += 1
+                    else:
 
-                events.append(model)
+                        block.count_events_module += 1
 
-                event_idx += 1
+                    model.save(self.db_session)
 
-            block.count_events = len(events_decoder.elements)
+                    events.append(model)
+
+                    event_idx += 1
+
+                block.count_events = len(events_decoder.elements)
 
         except SubstrateRequestException:
             block.count_events = 0
@@ -629,112 +758,126 @@ class PolkascanHarvesterService(BaseService):
         extrinsics_data = json_block['block'].pop('extrinsics')
 
         block.count_extrinsics = len(extrinsics_data)
+        print('start add_block block.count_extrinsics {} =='.format(block.count_extrinsics))
+        if block.count_extrinsics != 0:
 
-        extrinsic_idx = 0
+            extrinsic_idx = 0
 
-        extrinsics = []
+            extrinsics = []
 
-        for extrinsic in extrinsics_data:
+            for extrinsic in extrinsics_data:
 
-            # Save to data table
-            if block_hash == '0x911a0bf66d5494b6b24f612b3cc14841134c6b73ab9ce02f7e012973070e5661':
-                # TODO TEMP fix for exception in Alexander network, remove when network is obsolete
-                extrinsics_decoder = ExtrinsicsBlock61181Decoder(
-                    data=ScaleBytes(extrinsic),
-                    metadata=self.metadata_store[parent_spec_version]
+                # Save to data table
+                if block_hash == '0x911a0bf66d5494b6b24f612b3cc14841134c6b73ab9ce02f7e012973070e5661':
+                    # TODO TEMP fix for exception in Alexander network, remove when network is obsolete
+                    extrinsics_decoder = ExtrinsicsBlock61181Decoder(
+                        data=ScaleBytes(extrinsic),
+                        metadata=self.metadata_store[parent_spec_version]
+                    )
+                else:
+                    extrinsics_decoder = ExtrinsicsDecoder(
+                        data=ScaleBytes(extrinsic),
+                        metadata=self.metadata_store[parent_spec_version]
+                    )
+
+                extrinsic_data = extrinsics_decoder.decode()
+
+                # Lookup result of extrinsic
+                num = 10000
+                extrinsic_success = extrinsic_success_idx.get(extrinsic_idx, False)
+                if extrinsic_data.get('call_module') == 'sharding':
+                    num = int(extrinsic_data.get('params')[0]['value']['num'])
+                    print(
+                        'start add_block extrinsic_data decoder {} ={}='.format(
+                            extrinsic_data.get('params')[0]['value']['num'],
+                            substrate_url))
+
+                model = Extrinsic(
+                    block_id=block_id,
+                    extrinsic_idx=extrinsic_idx,
+                    extrinsic_hash=extrinsics_decoder.extrinsic_hash,
+                    extrinsic_length=extrinsic_data.get('extrinsic_length'),
+                    extrinsic_version=extrinsic_data.get('version_info'),
+                    signed=extrinsics_decoder.contains_transaction,
+                    unsigned=not extrinsics_decoder.contains_transaction,
+                    signedby_address=bool(extrinsics_decoder.contains_transaction and extrinsic_data.get('account_id')),
+                    signedby_index=bool(
+                        extrinsics_decoder.contains_transaction and extrinsic_data.get('account_index')),
+                    address_length=extrinsic_data.get('account_length'),
+                    address=extrinsic_data.get('account_id'),
+                    account_index=extrinsic_data.get('account_index'),
+                    account_idx=extrinsic_data.get('account_idx'),
+                    signature=extrinsic_data.get('signature'),
+                    nonce=extrinsic_data.get('nonce'),
+                    era=extrinsic_data.get('era'),
+                    call=extrinsic_data.get('call_code'),
+                    module_id=extrinsic_data.get('call_module'),
+                    call_id=extrinsic_data.get('call_module_function'),
+                    params=extrinsic_data.get('params'),
+                    spec_version_id=parent_spec_version,
+                    success=int(extrinsic_success),
+                    error=int(not extrinsic_success),
+                    codec_error=False,
+                    shard_num=shard_num,
+                    datetime=block.datetime
                 )
-            else:
-                extrinsics_decoder = ExtrinsicsDecoder(
-                    data=ScaleBytes(extrinsic),
-                    metadata=self.metadata_store[parent_spec_version]
-                )
+                model.save(self.db_session)
 
-            extrinsic_data = extrinsics_decoder.decode()
+                extrinsics.append(model)
 
-            # Lookup result of extrinsic
-            extrinsic_success = extrinsic_success_idx.get(extrinsic_idx, False)
+                extrinsic_idx += 1
 
-            model = Extrinsic(
-                block_id=block_id,
-                extrinsic_idx=extrinsic_idx,
-                extrinsic_hash=extrinsics_decoder.extrinsic_hash,
-                extrinsic_length=extrinsic_data.get('extrinsic_length'),
-                extrinsic_version=extrinsic_data.get('version_info'),
-                signed=extrinsics_decoder.contains_transaction,
-                unsigned=not extrinsics_decoder.contains_transaction,
-                signedby_address=bool(extrinsics_decoder.contains_transaction and extrinsic_data.get('account_id')),
-                signedby_index=bool(extrinsics_decoder.contains_transaction and extrinsic_data.get('account_index')),
-                address_length=extrinsic_data.get('account_length'),
-                address=extrinsic_data.get('account_id'),
-                account_index=extrinsic_data.get('account_index'),
-                account_idx=extrinsic_data.get('account_idx'),
-                signature=extrinsic_data.get('signature'),
-                nonce=extrinsic_data.get('nonce'),
-                era=extrinsic_data.get('era'),
-                call=extrinsic_data.get('call_code'),
-                module_id=extrinsic_data.get('call_module'),
-                call_id=extrinsic_data.get('call_module_function'),
-                params=extrinsic_data.get('params'),
-                spec_version_id=parent_spec_version,
-                success=int(extrinsic_success),
-                error=int(not extrinsic_success),
-                codec_error=False,
-                shard_num=0,
-                datetime=block.datetime
-            )
-            model.save(self.db_session)
+                # Process extrinsic
+                if extrinsics_decoder.contains_transaction:
+                    block.count_extrinsics_signed += 1
 
-            extrinsics.append(model)
+                    if model.signedby_address:
+                        block.count_extrinsics_signedby_address += 1
+                    if model.signedby_index:
+                        block.count_extrinsics_signedby_index += 1
 
-            extrinsic_idx += 1
+                else:
+                    block.count_extrinsics_unsigned += 1
 
-            # Process extrinsic
-            if extrinsics_decoder.contains_transaction:
-                block.count_extrinsics_signed += 1
+                # Process extrinsic processors
+                for processor_class in ProcessorRegistry().get_extrinsic_processors(model.module_id, model.call_id):
+                    extrinsic_processor = processor_class(block, model)
+                    extrinsic_processor.accumulation_hook(self.db_session)
 
-                if model.signedby_address:
-                    block.count_extrinsics_signedby_address += 1
-                if model.signedby_index:
-                    block.count_extrinsics_signedby_index += 1
+            # Process event processors
+            for event in events:
+                extrinsic = None
+                if event.extrinsic_idx is not None:
+                    try:
+                        extrinsic = extrinsics[event.extrinsic_idx]
+                    except IndexError:
+                        extrinsic = None
 
-            else:
-                block.count_extrinsics_unsigned += 1
-
-            # Process extrinsic processors
-            for processor_class in ProcessorRegistry().get_extrinsic_processors(model.module_id, model.call_id):
-                extrinsic_processor = processor_class(block, model)
-                extrinsic_processor.accumulation_hook(self.db_session)
-
-        # Process event processors
-        for event in events:
-            extrinsic = None
-            if event.extrinsic_idx is not None:
-                try:
-                    extrinsic = extrinsics[event.extrinsic_idx]
-                except IndexError:
-                    extrinsic = None
-
-            for processor_class in ProcessorRegistry().get_event_processors(event.module_id, event.event_id):
-                event_processor = processor_class(block, event, extrinsic,
-                                                  metadata=self.metadata_store.get(block.spec_version_id))
-                event_processor.accumulation_hook(self.db_session)
+                for processor_class in ProcessorRegistry().get_event_processors(event.module_id, event.event_id):
+                    event_processor = processor_class(block, event, extrinsic,
+                                                      metadata=self.metadata_store.get(block.spec_version_id))
+                    event_processor.accumulation_hook(self.db_session)
 
         # Process block processors
+        print('start add_block Process block processors {} =='.format("Process block processors"))
+
         for processor_class in ProcessorRegistry().get_block_processors():
             block_processor = processor_class(block)
             block_processor.accumulation_hook(self.db_session)
 
         # Debug info
+        print('start add_block Debuginfo {} =='.format("Debuginfo"))
+
         if DEBUG:
             block.debug_info = json_block
 
         # ==== Save data block ==================================
-        block.shard_num = 0
         block.mpmr = '0x11b994cbad6fb5012798388f32bb202817cf59e10675bae2217727cddc59ac95'
         block.validators = '0x11b994cbad6fb5012798388f32bb202817cf59e10675bae2217727cddc59ac95'
-        block.reward = 100
+        block.reward = '0x11b994cbad6fb5012798388f32bb202817cf59e10675bae2217727cddc59ac95'
         block.fee = 10
         block.save(self.db_session)
+        print('start add_block return {} =='.format("return"))
 
         return block
 
@@ -789,7 +932,8 @@ class PolkascanHarvesterService(BaseService):
 
             for extrinsic in extrinsics:
                 # Process extrinsic processors
-                for processor_class in ProcessorRegistry().get_extrinsic_processors(extrinsic.module_id, extrinsic.call_id):
+                for processor_class in ProcessorRegistry().get_extrinsic_processors(extrinsic.module_id,
+                                                                                    extrinsic.call_id):
                     extrinsic_processor = processor_class(block, extrinsic)
                     extrinsic_processor.sequencing_hook(
                         self.db_session,
@@ -869,7 +1013,8 @@ class PolkascanHarvesterService(BaseService):
                                 integrity_head.save(self.db_session)
                                 self.db_session.commit()
 
-                            raise BlockIntegrityError('Block #{} is missing.. stopping check '.format(parent_block.id + 1))
+                            raise BlockIntegrityError(
+                                'Block #{} is missing.. stopping check '.format(parent_block.id + 1))
                         elif block.parent_hash != parent_block.hash:
 
                             self.process_reorg_block(parent_block)
@@ -886,11 +1031,12 @@ class PolkascanHarvesterService(BaseService):
                             integrity_head.value = parent_block.id - 1
 
                             # Save integrity head if block hash of parent matches with hash in node
-                            #if parent_block.parent_hash == substrate.get_block_hash(integrity_head.value):
+                            # if parent_block.parent_hash == substrate.get_block_hash(integrity_head.value):
                             integrity_head.save(self.db_session)
                             self.db_session.commit()
 
-                            raise BlockIntegrityError('Block #{} failed integrity checks, Re-adding #{}.. '.format(parent_block.id, block.id))
+                            raise BlockIntegrityError(
+                                'Block #{} failed integrity checks, Re-adding #{}.. '.format(parent_block.id, block.id))
                         else:
                             integrity_head.value = block.id
 
@@ -906,9 +1052,9 @@ class PolkascanHarvesterService(BaseService):
 
         return {'integrity_head': integrity_head.value}
 
-    def start_sequencer(self):
-        integrity_status = self.integrity_checks()
-        self.db_session.commit()
+    def start_sequencer(self, substrate_url=None):
+        # integrity_status = self.integrity_checks()
+        # self.db_session.commit()
 
         block_nr = None
 
@@ -936,20 +1082,19 @@ class PolkascanHarvesterService(BaseService):
 
                 block = Block.query(self.db_session).order_by('id').first()
 
-                if not block:
-                    self.db_session.commit()
-                    return {'error': 'not block Chain not at genesis'}
-
-                if block.id == 1:
-                    # Add genesis block
-                    has_block = Block.query(self.db_session).filter_by(hash=block.parent_hash).first()
-                    print(has_block)
-                    if has_block is not None:
-                     block = self.add_block(block.parent_hash)
-
-                if block.id != 0:
-                    self.db_session.commit()
-                    return {'error': 'block.id != 0--Chain not at genesis'}
+                # if not block:
+                #     self.db_session.commit()
+                #     return {'error': 'not block Chain not at genesis'}
+                #
+                # if block.id == 1:
+                #     # Add genesis block
+                #     has_block = Block.query(self.db_session).filter_by(hash=block.parent_hash).first()
+                #     if has_block is not None:
+                #         block = self.add_block(block.parent_hash)
+                #
+                # if block.id != 0:
+                #     self.db_session.commit()
+                #     return {'error': 'block.id != 0--Chain not at genesis'}
 
                 self.process_genesis(block)
 
@@ -991,4 +1136,3 @@ class PolkascanHarvesterService(BaseService):
         for log in Log.query(self.db_session).filter_by(block_id=block.id):
             model = ReorgLog(block_hash=block.hash, **log.asdict())
             model.save(self.db_session)
-

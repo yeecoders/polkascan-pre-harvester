@@ -44,7 +44,7 @@ app = falcon.API(middleware=[ContextMiddleware(), SQLAlchemySessionManager(sessi
 # Application routes
 app.add_route('/healthcheck', HealthCheckResource())
 
-app.add_route('/start', PolkascanStartHarvesterResource())
+app.add_route('/start/{shard}', PolkascanStartHarvesterResource())
 app.add_route('/stop', PolkascanStopHarvesterResource())
 app.add_route('/status', PolkascanStatusHarvesterResource())
 app.add_route('/process', PolkascanProcessBlockResource())

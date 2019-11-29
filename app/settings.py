@@ -48,9 +48,16 @@ DEBUG = bool(os.environ.get("DEBUG", False))
 
 LEGACY_SESSION_VALIDATOR_LOOKUP = bool(os.environ.get("LEGACY_SESSION_VALIDATOR_LOOKUP", False))
 
-SHARDS_TABLE = {"shard.0": "http://127.0.0.1:9933/", "shard.1": "http://127.0.0.1:19933/", "shard.2": "http://127.0.0.1:29933/",
+SHARDS_TABLE = {"shard.0": "http://127.0.0.1:9933/", "shard.1": "http://127.0.0.1:19933/",
+                "shard.2": "http://127.0.0.1:29933/",
                 "shard.3": "http://127.0.0.1:39933/"}
 
+SHARDS_TABLE = {"shard.0": "http://127.0.0.1:9933/", "shard.1": "http://127.0.0.1:19933/",
+                "shard.2": "http://127.0.0.1:29933/",
+                "shard.3": "http://127.0.0.1:39933/"}
+
+NUM = {"http://127.0.0.1:9933/": "0", "http://127.0.0.1:19933/": "1", "http://127.0.0.1:29933/": "2",
+       "http://127.0.0.1:39933/": "3"}
 # Constants
 
 ACCOUNT_AUDIT_TYPE_NEW = 1
@@ -67,7 +74,6 @@ DEMOCRACY_REFERENDUM_AUDIT_TYPE_PASSED = 2
 DEMOCRACY_REFERENDUM_AUDIT_TYPE_NOTPASSED = 3
 DEMOCRACY_REFERENDUM_AUDIT_TYPE_CANCELLED = 4
 DEMOCRACY_REFERENDUM_AUDIT_TYPE_EXECUTED = 5
-
 
 DEMOCRACY_VOTE_AUDIT_TYPE_NORMAL = 1
 DEMOCRACY_VOTE_AUDIT_TYPE_PROXY = 2

@@ -23,8 +23,7 @@ import datetime
 import dateutil
 from sqlalchemy.orm.exc import NoResultFound
 
-from app.models.data import Log, AccountAudit, Account, AccountIndexAudit, AccountIndex, DemocracyProposalAudit, \
-    DemocracyProposal, DemocracyReferendumAudit, DemocracyReferendum, DemocracyVoteAudit, DemocracyVote
+from app.models.data import Log, AccountAudit, Account, AccountIndexAudit, AccountIndex
 from app.settings import ACCOUNT_AUDIT_TYPE_NEW, ACCOUNT_AUDIT_TYPE_REAPED, ACCOUNT_INDEX_AUDIT_TYPE_NEW, \
     ACCOUNT_INDEX_AUDIT_TYPE_REAPED, DEMOCRACY_PROPOSAL_AUDIT_TYPE_PROPOSED, DEMOCRACY_PROPOSAL_AUDIT_TYPE_TABLED, \
     DEMOCRACY_REFERENDUM_AUDIT_TYPE_STARTED, DEMOCRACY_REFERENDUM_AUDIT_TYPE_PASSED, \
@@ -36,27 +35,28 @@ from scalecodec.base import ScaleBytes
 
 from app.processors.base import BlockProcessor
 from scalecodec.block import LogDigest
-
+import random
 
 class LogBlockProcessor(BlockProcessor):
 
     def accumulation_hook(self, db_session):
+        print('start add_block Process block processors {} =='.format("Process block log processors"))
 
         self.block.count_log = len(self.block.logs)
+        if self.block.count_log != 0:
+            for idx, log_data in enumerate(self.block.logs):
+                log_digest = LogDigest(ScaleBytes(log_data))
+                log_digest.decode()
 
-        for idx, log_data in enumerate(self.block.logs):
-            log_digest = LogDigest(ScaleBytes(log_data))
-            log_digest.decode()
-
-            log = Log(
-                block_id=self.block.id,
-                log_idx=idx,
-                type_id=log_digest.index,
-                type=log_digest.index_value,
-                data=log_digest.value,
-            )
-            log.shard_num = 0
-            log.save(db_session)
+                log = Log(
+                    block_id=self.block.bid,
+                    log_idx=idx,
+                    type_id=log_digest.index,
+                    type=log_digest.index_value,
+                    data=log_digest.value,
+                    shard_num=self.block.shard_num,
+                )
+                log.save(db_session)
 
     def accumulation_revert(self, db_session):
         for item in Log.query(db_session).filter_by(block_id=self.block.id):
@@ -111,6 +111,8 @@ class BlockTotalProcessor(BlockProcessor):
 class AccountBlockProcessor(BlockProcessor):
 
     def accumulation_hook(self, db_session):
+        print('start add_block Process block processors {} =='.format("Process block account processors"))
+
         self.block.count_accounts_new += len(set(self.block._accounts_new))
         self.block.count_accounts_reaped += len(set(self.block._accounts_reaped))
 
@@ -145,134 +147,16 @@ class AccountBlockProcessor(BlockProcessor):
                 if account_audit.type_id != ACCOUNT_AUDIT_TYPE_NEW:
                     account.is_reaped = True
                     account.count_reaped = 1
-            account.shard_num = 0
+            account.shard_num = random.randint(1, 10000)
             account.save(db_session)
 
 
-class DemocracyProposalBlockProcessor(BlockProcessor):
-
-    def sequencing_hook(self, db_session, parent_block_data, parent_sequenced_block_data):
-
-        for proposal_audit in DemocracyProposalAudit.query(db_session).filter_by(block_id=self.block.id).order_by('event_idx'):
-
-            if proposal_audit.type_id == DEMOCRACY_PROPOSAL_AUDIT_TYPE_PROPOSED:
-                status = 'Proposed'
-            elif proposal_audit.type_id == DEMOCRACY_PROPOSAL_AUDIT_TYPE_TABLED:
-                status = 'Tabled'
-            else:
-                status = '[unknown]'
-
-            try:
-                proposal = DemocracyProposal.query(db_session).filter_by(id=proposal_audit.democracy_proposal_id).one()
-
-                proposal.status = status
-                proposal.updated_at_block = self.block.id
-
-            except NoResultFound:
-
-                proposal = DemocracyProposal(
-                    id=proposal_audit.democracy_proposal_id,
-                    proposal=proposal_audit.data['proposal'],
-                    bond=proposal_audit.data['bond'],
-                    created_at_block=self.block.id,
-                    updated_at_block=self.block.id,
-                    status=status
-                )
-
-            proposal.save(db_session)
-
-
-class DemocracyReferendumBlockProcessor(BlockProcessor):
-
-    def sequencing_hook(self, db_session, parent_block_data, parent_sequenced_block_data):
-
-        # TODO force insert on Started status
-        for referendum_audit in DemocracyReferendumAudit.query(db_session).filter_by(block_id=self.block.id).order_by('event_idx'):
-
-            success = None
-            vote_threshold = None
-            proposal = None
-
-            if referendum_audit.type_id == DEMOCRACY_REFERENDUM_AUDIT_TYPE_STARTED:
-                status = 'Started'
-                vote_threshold = referendum_audit.data.get('vote_threshold')
-                proposal = referendum_audit.data.get('proposal')
-
-            elif referendum_audit.type_id == DEMOCRACY_REFERENDUM_AUDIT_TYPE_PASSED:
-                status = 'Passed'
-            elif referendum_audit.type_id == DEMOCRACY_REFERENDUM_AUDIT_TYPE_NOTPASSED:
-                status = 'NotPassed'
-            elif referendum_audit.type_id == DEMOCRACY_REFERENDUM_AUDIT_TYPE_CANCELLED:
-                status = 'Cancelled'
-            elif referendum_audit.type_id == DEMOCRACY_REFERENDUM_AUDIT_TYPE_EXECUTED:
-                status = 'Executed'
-                success = referendum_audit.data.get('success')
-            else:
-                status = '[unknown]'
-
-            try:
-                referendum = DemocracyReferendum.query(db_session).filter_by(id=referendum_audit.democracy_referendum_id).one()
-
-                if proposal:
-                    referendum.proposal = proposal
-
-                referendum.status = status
-                referendum.updated_at_block = self.block.id
-                referendum.success = success
-
-            except NoResultFound:
-
-                referendum = DemocracyReferendum(
-                    id=referendum_audit.democracy_referendum_id,
-                    vote_threshold=vote_threshold,
-                    created_at_block=self.block.id,
-                    updated_at_block=self.block.id,
-                    proposal=proposal,
-                    success=success,
-                    status=status
-                )
-
-            referendum.save(db_session)
-
-
-class DemocracyVoteBlockProcessor(BlockProcessor):
-
-    def sequencing_hook(self, db_session, parent_block_data, parent_sequenced_block_data):
-
-        for vote_audit in DemocracyVoteAudit.query(db_session).filter_by(block_id=self.block.id).order_by('extrinsic_idx'):
-
-            try:
-                vote = DemocracyVote.query(db_session).filter_by(
-                    democracy_referendum_id=vote_audit.democracy_referendum_id,
-                    stash_account_id=vote_audit.data.get('stash_account_id')
-                ).one()
-
-                vote.updated_at_block = self.block.id
-
-            except NoResultFound:
-
-                vote = DemocracyVote(
-                    democracy_referendum_id=vote_audit.democracy_referendum_id,
-                    created_at_block=self.block.id,
-                    updated_at_block=self.block.id,
-                    stash_account_id=vote_audit.data.get('stash_account_id')
-                )
-
-            vote.vote_account_id = vote_audit.data.get('vote_account_id')
-            vote.vote_raw = vote_audit.data.get('vote_raw')
-            vote.vote_yes = vote_audit.data.get('vote_yes')
-            vote.vote_no = vote_audit.data.get('vote_no')
-            vote.stash = vote_audit.data.get('stash')
-            vote.conviction = vote_audit.data.get('conviction')
-            vote.vote_yes_weighted = vote_audit.data.get('vote_yes_weighted')
-            vote.vote_no_weighted = vote_audit.data.get('vote_no_weighted')
-
-            vote.save(db_session)
 
 
 class AccountIndexBlockProcessor(BlockProcessor):
 
     def sequencing_hook(self, db_session, parent_block_data, parent_sequenced_block_data):
+        print('start add_block Process block processors {} =='.format("Process block AccountIndexBlockProcessor "))
 
         for account_index_audit in AccountIndexAudit.query(db_session).filter_by(
                 block_id=self.block.id
