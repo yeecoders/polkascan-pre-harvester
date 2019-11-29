@@ -347,7 +347,7 @@ class Account(BaseModel):
     __tablename__ = 'data_account'
 
     id = sa.Column(sa.String(64), primary_key=True)
-    address = sa.Column(sa.String(48), index=True)
+    address = sa.Column(sa.String(64), index=True)
     is_reaped = sa.Column(sa.Boolean, default=False)
     is_validator = sa.Column(sa.Boolean, default=False)
     is_nominator = sa.Column(sa.Boolean, default=False)
@@ -375,7 +375,7 @@ class AccountIndex(BaseModel):
     __tablename__ = 'data_account_index'
 
     id = sa.Column(sa.Integer(), primary_key=True, autoincrement=False)
-    short_address = sa.Column(sa.String(24), index=True)
+    short_address = sa.Column(sa.String(64), index=True)
     account_id = sa.Column(sa.String(64), index=True)
     is_reclaimable = sa.Column(sa.Boolean, default=False)
     is_reclaimed = sa.Column(sa.Boolean, default=False)
