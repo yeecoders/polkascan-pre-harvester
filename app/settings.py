@@ -30,7 +30,7 @@ DB_CONNECTION = os.environ.get("DB_CONNECTION", "mysql+mysqlconnector://{}:{}@{}
     DB_USERNAME, DB_PASSWORD, DB_HOST, DB_PORT, DB_NAME
 ))
 
-SUBSTRATE_RPC_URL = os.environ.get("SUBSTRATE_RPC_URL", "http://127.0.0.1:9933/")
+SUBSTRATE_RPC_URL = os.environ.get("SUBSTRATE_RPC_URL", "http://18.138.185.139:9933/")
 SUBSTRATE_ADDRESS_TYPE = int(os.environ.get("SUBSTRATE_ADDRESS_TYPE", 42))
 HRP = os.environ.get("HRP", "tyee")
 # Simulate Scale encoded extrinsics per block for e.g. performance tests
@@ -48,13 +48,13 @@ DEBUG = bool(os.environ.get("DEBUG", False))
 
 LEGACY_SESSION_VALIDATOR_LOOKUP = bool(os.environ.get("LEGACY_SESSION_VALIDATOR_LOOKUP", False))
 
-SHARDS_TABLE = {"shard.0": "http://127.0.0.1:9033/", "shard.1": "http://127.0.0.1:9133/",
-                "shard.2": "http://127.0.0.1:9233/",
-                "shard.3": "http://127.0.0.1:9333/"}
+
+SHARDS_TABLE = {"shard.0": "http://18.138.185.139:9933/", "shard.1": "http://3.1.239.198:9933/",
+                "shard.2": "http://52.221.95.128:9933/", "shard.3": "http://13.229.27.44:9933/"}
 
 
-NUM = {"http://127.0.0.1:9033/": "0", "http://127.0.0.1:9133/": "1", "http://127.0.0.1:9233/": "2",
-       "http://127.0.0.1:9333/": "3"}
+NUM = {"http://18.138.185.139:9933/": "0", "http://3.1.239.198:9933/": "1", "http://52.221.95.128:9933/": "2",
+       "http://13.229.27.44:9933/": "3"}
 # Constants
 
 ACCOUNT_AUDIT_TYPE_NEW = 1

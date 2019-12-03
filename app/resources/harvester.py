@@ -32,22 +32,23 @@ from app.resources.base import BaseResource
 from app.schemas import load_schema
 from app.processors.converters import PolkascanHarvesterService, BlockAlreadyAdded, BlockIntegrityError
 from substrateinterface import SubstrateInterface
-from app.tasks import accumulate_block_recursive, start_harvester
+from app.tasks import init
 from app.settings import SUBSTRATE_RPC_URL, TYPE_REGISTRY
 
 
 class PolkascanStartHarvesterResource(BaseResource):
 
     # @validate(load_schema('start_harvester'))
-    def on_post(self, req, resp, shard):
-        task = start_harvester.delay(check_gaps=True, shard=shard)
+    def on_post(self, req, resp):
+        print(req)
+        task = init('shard.0')
 
         resp.status = falcon.HTTP_201
 
         resp.media = {
             'status': 'success',
             'data': {
-                'task_id': task.id
+                'task_id': task
             }
         }
 

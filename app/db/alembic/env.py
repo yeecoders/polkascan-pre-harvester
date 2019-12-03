@@ -186,8 +186,11 @@ class Block(BaseModel):
     mpmr = sa.Column(sa.String(66), nullable=False)
     validators = sa.Column(sa.String(66), nullable=False)
     shard_num = sa.Column(sa.Integer(), index=True, primary_key=True)
-    reward = sa.Column(sa.String(66), nullable=False)
-    fee = sa.Column(sa.Numeric(precision=65, scale=0), nullable=False)
+
+    reward_block_number = sa.Column(sa.Integer(), nullable=False)
+    coinbase = sa.Column(sa.String(66), nullable=False)
+    block_reward = sa.Column(sa.Numeric(precision=65, scale=0), nullable=False)
+    fee_reward = sa.Column(sa.Numeric(precision=65, scale=0), nullable=False)
 
     def set_datetime(self, datetime):
         self.datetime = datetime
@@ -327,6 +330,7 @@ class Extrinsic(BaseModel):
 
     codec_error = sa.Column(sa.Boolean(), default=False)
     datetime = sa.Column(sa.DateTime(timezone=True))
+    origin_hash = sa.Column(sa.String(64), index=True, nullable=True)
 
     def serialize_id(self):
         return '{}-{}'.format(self.block_id, self.extrinsic_idx)

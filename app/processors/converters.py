@@ -19,6 +19,7 @@
 #  converters.py
 import math
 import random
+from _blake2 import blake2b
 
 from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
@@ -43,6 +44,7 @@ from app.models.data import Extrinsic, Block, Event, Runtime, RuntimeModule, Run
 from app.processors.block import *
 from app.utils import bech32
 import json
+
 
 class HarvesterCouldNotAddBlock(Exception):
     pass
@@ -162,11 +164,12 @@ class PolkascanHarvesterService(BaseService):
                                 account.shard_num = NUM[substrate_url]
 
                                 print('start add  account {} =='.format(account))
-
-                                account.save(self.db_session)
+                                if Account.query(self.db_session).filter_by(id=account_audit.account_id).count() == 0:
+                                    account.save(self.db_session)
                                 self.db_session.commit()
-
-                            account_audit.save(self.db_session)
+                            if AccountAudit.query(self.db_session).filter_by(
+                                    account_id=account_audit.account_id).count() == 0:
+                                account_audit.save(self.db_session)
 
                             account_index_id = enum_set_nr * 64 + idx
 
@@ -178,8 +181,9 @@ class PolkascanHarvesterService(BaseService):
                                 event_idx=None,
                                 type_id=ACCOUNT_INDEX_AUDIT_TYPE_NEW
                             )
-
-                            account_index_audit.save(self.db_session)
+                            if AccountIndexAudit.query(self.db_session).filter_by(
+                                    account_id=account_index_audit.account_id).count() == 0:
+                                account_index_audit.save(self.db_session)
 
         block.save(self.db_session)
 
@@ -261,11 +265,6 @@ class PolkascanHarvesterService(BaseService):
                             )
 
                             account_index_audit.save(self.db_session)
-                            block.shard_num = 0
-                            block.mpmr = '0x11b994cbad6fb5012798388f32bb202817cf59e10675bae2217727cddc59ac95'
-                            block.validators = '0x11b994cbad6fb5012798388f32bb202817cf59e10675bae2217727cddc59ac95'
-                            block.reward = 100
-                            block.fee = 10
 
         block.save(self.db_session)
 
@@ -597,17 +596,20 @@ class PolkascanHarvesterService(BaseService):
 
     def add_block(self, block_hash, substrate_url=None):
         print('start add_block substrate_url {} =='.format(substrate_url))
-        print('start add_block block_hash {} =='.format(block_hash))
+        print('start add_block block_hasubstratesh {} =='.format(block_hash))
         if substrate_url is None:
             raise HarvesterNotshardParamsError('params shard is missing.. stopping harvester ')
 
         shard_num = NUM[substrate_url]
         print('start shard_num shard_num {} =='.format(shard_num))
         # Check if block is already process
-        if Block.query(self.db_session).filter_by(hash=block_hash).count() > 0:
-            print('start add_block BlockAlreadyAdded {} =='.format("BlockAlreadyAdded"))
 
-            raise BlockAlreadyAdded(block_hash)
+        bq = Block.query(self.db_session).filter_by(hash=block_hash).first()
+
+        if bq:
+            print('bq: {} =='.format(bq.bid))
+            print('start add_block BlockAlreadyAdded {} =='.format(block_hash))
+            return bq
         # Extract data from json_block
 
         substrate = SubstrateInterface(substrate_url)
@@ -623,6 +625,16 @@ class PolkascanHarvesterService(BaseService):
         extrinsics_root = json_block['block']['header'].pop('extrinsicsRoot')
         state_root = json_block['block']['header'].pop('stateRoot')
         digest_logs = json_block['block']['header'].get('digest', {}).pop('logs', None)
+        # decode logs
+        mpmr = ''
+        if len(digest_logs) != 0:
+            for dg in digest_logs:
+                if dg[0:4] == '0x04':
+                    mpmr = '0x'+self.decode_log_pow(dg)
+                elif dg[0:8] == '0x001802':
+                    # 0x0018020002000400
+                    shard_num = dg[10:12]
+
 
         # Convert block number to numeric
         if not block_id.isnumeric():
@@ -681,7 +693,8 @@ class PolkascanHarvesterService(BaseService):
             range1000000=math.floor(block_id / 1000000),
             spec_version_id=spec_version,
             logs=digest_logs,
-            shard_num=shard_num
+            shard_num=shard_num,
+            mpmr=mpmr
 
         )
 
@@ -692,8 +705,11 @@ class PolkascanHarvesterService(BaseService):
         # ==== Get block events from Substrate ==================
         extrinsic_success_idx = {}
         events = []
-        block_reward = '0x'
-        coinbase = '0'
+        block_reward = 0
+        coinbase = '0x'
+        reward_block_number = 0
+        fee_reward = 0
+
         try:
             events_decoder = substrate.get_block_events(block_hash, self.metadata_store[parent_spec_version])
 
@@ -723,15 +739,15 @@ class PolkascanHarvesterService(BaseService):
 
                     # Process event
                     if event.value['event_id'] == 'Reward':
-
                         data1 = event.value['params'][0]
                         json_str = json.dumps(data1)
                         data2 = json.loads(json_str)
                         block_reward = data2['value']['block_reward']
                         coinbase = data2['value']['coinbase']
+                        reward_block_number = data2['value']['block_number']
+                        fee_reward = data2['value']['fee_reward']
 
-
-                        print(' event.value['']get {} ==block_id--{}'.format(data2['value'],block_id))
+                        print(' event params ---{}'.format(data1))
 
                     if event.value['phase'] == 0:
                         block.count_events_extrinsic += 1
@@ -768,6 +784,8 @@ class PolkascanHarvesterService(BaseService):
         # === Extract extrinsics from block ====
 
         extrinsics_data = json_block['block'].pop('extrinsics')
+        num = 10000
+        origin_hash = ''
 
         block.count_extrinsics = len(extrinsics_data)
         print('start add_block block.count_extrinsics {} =='.format(block.count_extrinsics))
@@ -795,15 +813,17 @@ class PolkascanHarvesterService(BaseService):
                 extrinsic_data = extrinsics_decoder.decode()
 
                 # Lookup result of extrinsic
-                num = 10000
+
                 extrinsic_success = extrinsic_success_idx.get(extrinsic_idx, False)
                 if extrinsic_data.get('call_module') == 'sharding':
                     num = int(extrinsic_data.get('params')[0]['value']['num'])
-                    print(
-                        'start add_block extrinsic_data decoder {} ={}='.format(
-                            extrinsic_data.get('params')[0]['value']['num'],
-                            substrate_url))
+                    print('start add_block extrinsic_data decoder-get num  {} ={}='.format(num, substrate_url))
 
+                if extrinsic_data.get('call_module_function') == 'relay_transfer':
+                    origin_hash = blake2b(bytearray.fromhex(extrinsic_data.get('params')[0]['value']),
+                                          digest_size=32).digest().hex()
+                    print('start add_block extrinsic_data decoder-get origin_hash  {} ={}='.format(origin_hash,
+                                                                                                   substrate_url))
                 model = Extrinsic(
                     block_id=block_id,
                     extrinsic_idx=extrinsic_idx,
@@ -831,7 +851,8 @@ class PolkascanHarvesterService(BaseService):
                     error=int(not extrinsic_success),
                     codec_error=False,
                     shard_num=shard_num,
-                    datetime=block.datetime
+                    datetime=block.datetime,
+                    origin_hash=origin_hash
                 )
                 model.save(self.db_session)
 
@@ -884,10 +905,12 @@ class PolkascanHarvesterService(BaseService):
             block.debug_info = json_block
 
         # ==== Save data block ==================================
-        block.mpmr = '0x11b994cbad6fb5012798388f32bb202817cf59e10675bae2217727cddc59ac95'
-        block.validators = '0x11b994cbad6fb5012798388f32bb202817cf59e10675bae2217727cddc59ac95'
-        block.reward = coinbase
-        block.fee = int(block_reward)
+        block.validators = ''
+        block.coinbase = coinbase
+        block.block_reward = block_reward
+        block.reward_block_number = reward_block_number
+        block.fee_reward = fee_reward
+
         block.save(self.db_session)
         print('start add_block return {} =='.format("return"))
 
@@ -1148,3 +1171,84 @@ class PolkascanHarvesterService(BaseService):
         for log in Log.query(self.db_session).filter_by(block_id=block.id):
             model = ReorgLog(block_hash=block.hash, **log.asdict())
             model.save(self.db_session)
+
+    def decode_log_pow(self, input):
+        # if input[0:4] != '0x04':
+        #     return
+        input = input[2:]
+        obj = ScaleDecoder.get_decoder_class('Compact<u32>', ScaleBytes(bytearray.fromhex(input[10:20])))
+        obj.decode()
+        veclen = obj.value
+        if veclen <= 0b00111111:
+            compactLen = 1
+        elif veclen <= 0b0011111111111111:
+            compactLen = 2
+
+        elif veclen <= 0b00111111111111111111111111111111:
+            compactLen = 4
+        else:
+            compactLen = 5
+
+        len = 2 + 8 + compactLen * 2 + 64 + 64 + 16
+
+        workProofType = ScaleDecoder.get_decoder_class('U16', ScaleBytes('0x' + str(input[len:len + 2])))
+        workProofType.decode()
+
+        workProofOffset = 2 + 8 + compactLen * 2 + 64 + 64 + 16 + 2
+
+        if workProofType.value == 2:
+            dataforextraDataLen = input[workProofOffset:(workProofOffset + 170)]
+
+            extraDataLen = ScaleDecoder.get_decoder_class('Compact<u32>',
+                                                          ScaleBytes(bytearray.fromhex(dataforextraDataLen)))
+            extraDataLen.decode()
+
+            if extraDataLen.value <= 0b00111111:
+                compactLen = 1
+            elif extraDataLen <= 0b0011111111111111:
+                compactLen = 2
+
+            elif extraDataLen.value <= 0b00111111111111111111111111111111:
+                compactLen = 4
+            else:
+                compactLen = 5
+
+            mlen = workProofOffset + compactLen * 2 + extraDataLen.value * 2
+            merkle_root = input[mlen:mlen + 64]
+            print(merkle_root)
+
+        return merkle_root
+
+
+import unittest
+from scalecodec.base import ScaleDecoder, ScaleBytes, RemainingScaleBytesNotEmptyException
+from scalecodec.block import ExtrinsicsDecoder, MetadataDecoder
+
+
+class TestScaleTypes(unittest.TestCase):
+    def test_log(self):
+        # logs in header
+        # "logs": [
+        #     "0x00 1802 000000 0400",
+        #      0x00 1802 000100 0400
+        #      0x00 1802 000200 0400
+        #     "0x00ed03030000000000000000001850907ff82b2d1fb8d7d07fe9cc0c6e33454e1e98abce6714d20567fbf33be078010000000000000050907ff82b2d1fb8d7d07fe9cc0c6e33454e1e98abce6714d20567fbf33be078010000000000000050907ff82b2d1fb8d7d07fe9cc0c6e33454e1e98abce6714d20567fbf33be078010000000000000050907ff82b2d1fb8d7d07fe9cc0c6e33454e1e98abce6714d20567fbf33be078010000000000000050907ff82b2d1fb8d7d07fe9cc0c6e33454e1e98abce6714d20567fbf33be078010000000000000050907ff82b2d1fb8d7d07fe9cc0c6e33454e1e98abce6714d20567fbf33be0780100000000000000",
+        #     "0x002804008a0b000000000000",
+        #     "0x0459656521750350907ff82b2d1fb8d7d07fe9cc0c6e33454e1e98abce6714d20567fbf33be078dee67cd3e950d9ecc58898fd0f94e94865f7e226e66e66b43683ed870c0100004e2989c06e01000002287965652d7377697463689f3314763de4e45e5c609767a4f860515a29503f50096bfa7ee3d81d769be64f2b15000000000000085afb1172f6a2a4611043764a56a6ce759f30fefb156293b4e26ba1a42b4f8ce278c86f19241fe16267983b35b4994d824acf5f8884aa98dabfbaed6ae41d28e185c09af929492a871e4fae32d9d5c36e352471cd659bcdb61de08f1722acc3b1"
+        # ]
+        substrate = SubstrateInterface('http://52.221.95.128:9933')
+        # 0x77e03e6e301b3603b4f0f690b338c9922d63c5adb99a9eb4e59f3c0ccb0bcc58
+        # 0xcb1daf0b754d9d9930cc104edfb783512dcc343549e4ea352147d106481e30ba
+        json_block = substrate.get_chain_block('0xcb1daf0b754d9d9930cc104edfb783512dcc343549e4ea352147d106481e30ba')
+
+        digest_logs = json_block['block']['header'].get('digest', {}).pop('logs', None)
+        harvester = PolkascanHarvesterService(None, type_registry='default')
+        if len(digest_logs) != 0:
+            for dg in digest_logs:
+                if dg[0:4] == '0x04':
+                    merkle_root = harvester.decode_log_pow(dg)
+                elif dg[0:8] == '0x001802':
+                    # 0x0018020002000400
+                    print(dg[10:12])
+
+        self.assertEqual(merkle_root, '53ab6f561d1d034534fa756ed01d309a60d87106ce7dfc3d37af67f8e9bac32f')
