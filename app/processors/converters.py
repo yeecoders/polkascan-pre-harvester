@@ -630,11 +630,10 @@ class PolkascanHarvesterService(BaseService):
         if len(digest_logs) != 0:
             for dg in digest_logs:
                 if dg[0:4] == '0x04':
-                    mpmr = '0x'+self.decode_log_pow(dg)
+                    mpmr = '0x' + self.decode_log_pow(dg)
                 elif dg[0:8] == '0x001802':
                     # 0x0018020002000400
                     shard_num = dg[10:12]
-
 
         # Convert block number to numeric
         if not block_id.isnumeric():
@@ -706,7 +705,7 @@ class PolkascanHarvesterService(BaseService):
         extrinsic_success_idx = {}
         events = []
         block_reward = 0
-        coinbase = '0x'
+        coinbase = HRP
         reward_block_number = 0
         fee_reward = 0
 
@@ -744,6 +743,9 @@ class PolkascanHarvesterService(BaseService):
                         data2 = json.loads(json_str)
                         block_reward = data2['value']['block_reward']
                         coinbase = data2['value']['coinbase']
+                        if coinbase != HRP:
+                            coinbase = bech32.encode(HRP, bytes().fromhex(data2['value']['coinbase'][2:]))
+
                         reward_block_number = data2['value']['block_number']
                         fee_reward = data2['value']['fee_reward']
 
