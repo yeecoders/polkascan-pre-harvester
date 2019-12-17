@@ -36,8 +36,8 @@ from substrateinterface import SubstrateInterface
 
 from app.settings import DB_CONNECTION, DEBUG, SUBSTRATE_RPC_URL, TYPE_REGISTRY, SHARDS_TABLE, NUM
 
-CELERY_BROKER = 'redis://localhost:6379/0'
-CELERY_BACKEND = 'redis://localhost:6379/0'
+CELERY_BROKER = 'redis://redis:6379/0'
+CELERY_BACKEND = 'redis://redis:6379/0'
 
 app = celery.Celery('tasks', broker=CELERY_BROKER, backend=CELERY_BACKEND)
 
