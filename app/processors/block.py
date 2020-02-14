@@ -41,7 +41,7 @@ from app.utils import bech32
 class LogBlockProcessor(BlockProcessor):
 
     def accumulation_hook(self, db_session):
-        print('start add_block Process block processors {} =='.format("Process block log processors"))
+        #print('start add_block Process block processors {} =='.format("Process block log processors"))
 
         self.block.count_log = len(self.block.logs)
         if self.block.count_log != 0:
@@ -67,7 +67,7 @@ class LogBlockProcessor(BlockProcessor):
 class BlockTotalProcessor(BlockProcessor):
 
     def sequencing_hook(self, db_session, parent_block_data, parent_sequenced_block_data):
-        print("BlockTotalProcessor$$$$$$$$$$$$$$$$$$$")
+        #print("BlockTotalProcessor$$$$$$$$$$$$$$$$$$$")
         if not parent_sequenced_block_data:
             parent_sequenced_block_data = {}
 
@@ -112,7 +112,7 @@ class BlockTotalProcessor(BlockProcessor):
 class AccountBlockProcessor(BlockProcessor):
 
     def accumulation_hook(self, db_session):
-        print('start add_block Process block processors {} =='.format("Process block account processors"))
+        #print('start add_block Process block processors {} =='.format("Process block account processors"))
 
         self.block.count_accounts_new += len(set(self.block._accounts_new))
         self.block.count_accounts_reaped += len(set(self.block._accounts_reaped))
@@ -157,7 +157,7 @@ class AccountBlockProcessor(BlockProcessor):
 class AccountIndexBlockProcessor(BlockProcessor):
 
     def sequencing_hook(self, db_session, parent_block_data, parent_sequenced_block_data):
-        print('start add_block Process block processors {} =='.format("Process block AccountIndexBlockProcessor "))
+        #print('start add_block Process block processors {} =='.format("Process block AccountIndexBlockProcessor "))
 
         for account_index_audit in AccountIndexAudit.query(db_session).filter_by(
                 block_id=self.block.id

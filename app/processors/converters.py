@@ -595,20 +595,20 @@ class PolkascanHarvesterService(BaseService):
                     self.db_session.rollback()
 
     def add_block(self, block_hash, substrate_url=None):
-        print('start add_block substrate_url {} =='.format(substrate_url))
+        #print('start add_block substrate_url {} =='.format(substrate_url))
         print('start add_block block_hasubstratesh {} =='.format(block_hash))
         if substrate_url is None:
             raise HarvesterNotshardParamsError('params shard is missing.. stopping harvester ')
 
         shard_num = NUM[substrate_url]
-        print('start shard_num shard_num {} =='.format(shard_num))
+        #print('start shard_num shard_num {} =='.format(shard_num))
         # Check if block is already process
 
         bq = Block.query(self.db_session).filter_by(hash=block_hash).first()
 
         if bq:
-            print('bq: {} =='.format(bq.bid))
-            print('start add_block BlockAlreadyAdded {} =='.format(block_hash))
+            #print('bq: {} =='.format(bq.bid))
+            #print('start add_block BlockAlreadyAdded {} =='.format(block_hash))
             return bq
         # Extract data from json_block
 
@@ -618,7 +618,7 @@ class PolkascanHarvesterService(BaseService):
             substrate.mock_extrinsics = SUBSTRATE_MOCK_EXTRINSICS
 
         json_block = substrate.get_chain_block(block_hash)
-        print('start add_block json_block {} =='.format(json_block))
+        #print('start add_block json_block {} =='.format(json_block))
 
         parent_hash = json_block['block']['header'].pop('parentHash')
         block_id = json_block['block']['header'].pop('number')
@@ -646,7 +646,7 @@ class PolkascanHarvesterService(BaseService):
         spec_version = json_runtime_version.get('specVersion', 0)
 
         if Runtime.query(self.db_session).filter_by(impl_name='yee-rs').count() <= 0:
-            print('start add_block process_metadata {} =='.format("process_metadata"))
+            #print('start add_block process_metadata {} =='.format("process_metadata"))
             self.process_metadata(json_runtime_version, block_hash, substrate_url)
 
         # ==== Get parent block runtime ===================
@@ -749,7 +749,7 @@ class PolkascanHarvesterService(BaseService):
                         reward_block_number = data2['value']['block_number']
                         fee_reward = data2['value']['fee_reward']
 
-                        print(' event params ---{}'.format(data1))
+                        #print(' event params ---{}'.format(data1))
 
                     if event.value['phase'] == 0:
                         block.count_events_extrinsic += 1
@@ -790,7 +790,7 @@ class PolkascanHarvesterService(BaseService):
         origin_hash = ''
 
         block.count_extrinsics = len(extrinsics_data)
-        print('start add_block block.count_extrinsics {} =='.format(block.count_extrinsics))
+        #print('start add_block block.count_extrinsics {} =='.format(block.count_extrinsics))
         if block.count_extrinsics != 0:
 
             extrinsic_idx = 0
@@ -819,13 +819,18 @@ class PolkascanHarvesterService(BaseService):
                 extrinsic_success = extrinsic_success_idx.get(extrinsic_idx, False)
                 if extrinsic_data.get('call_module') == 'sharding':
                     num = int(extrinsic_data.get('params')[0]['value']['num'])
-                    print('start add_block extrinsic_data decoder-get num  {} ={}='.format(num, substrate_url))
+                    #print('start add_block extrinsic_data decoder-get num  {} ={}='.format(num, substrate_url))
 
                 if extrinsic_data.get('call_module_function') == 'relay_transfer':
                     origin_hash = blake2b(bytearray.fromhex(extrinsic_data.get('params')[0]['value']),
                                           digest_size=32).digest().hex()
-                    print('start add_block extrinsic_data decoder-get origin_hash  {} ={}='.format(origin_hash,
-                                                                                                   substrate_url))
+                    #print('start add_block extrinsic_data decoder-get origin_hash  {} ={}='.format(origin_hash,substrate_url))
+                if extrinsic_data.get('call_module_function') == 'transfer' and extrinsic_data.get('call_code') =='0900':
+                    print('extrinsic_data.call_code=', extrinsic_data.get('call_code'))
+                    print('extrinsic_data.getparams=', extrinsic_data.get('params')[1]['value'])
+                    origin_hash = blake2b(bytearray.fromhex(extrinsic_data.get('params')[1]['value']),
+                                          digest_size=32).digest().hex()
+
                 model = Extrinsic(
                     block_id=block_id,
                     extrinsic_idx=extrinsic_idx,
@@ -894,14 +899,14 @@ class PolkascanHarvesterService(BaseService):
                     event_processor.accumulation_hook(self.db_session)
 
         # Process block processors
-        print('start add_block Process block processors {} =='.format("Process block processors"))
+        #print('start add_block Process block processors {} =='.format("Process block processors"))
 
         for processor_class in ProcessorRegistry().get_block_processors():
             block_processor = processor_class(block)
             block_processor.accumulation_hook(self.db_session)
 
         # Debug info
-        print('start add_block Debuginfo {} =='.format("Debuginfo"))
+        #print('start add_block Debuginfo {} =='.format("Debuginfo"))
 
         if DEBUG:
             block.debug_info = json_block
@@ -914,7 +919,7 @@ class PolkascanHarvesterService(BaseService):
         block.fee_reward = fee_reward
 
         block.save(self.db_session)
-        print('start add_block return {} =='.format("return"))
+        #print('start add_block return {} =='.format("return"))
 
         return block
 

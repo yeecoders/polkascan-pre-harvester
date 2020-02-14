@@ -61,7 +61,7 @@ class NewAccountEventProcessor(EventProcessor):
 
             account_total = Account.query(db_session).filter_by(
                 id=account_audit.account_id).count()
-            print('NewAccountEventProcessor get account_total {} =='.format(account_total))
+            #print('NewAccountEventProcessor get account_total {} =='.format(account_total))
 
             if account_total <= 0:
                 account = Account(
@@ -85,7 +85,7 @@ class NewAccountEventProcessor(EventProcessor):
                     account.count_reaped = 1
                 account.shard_num = 0
 
-                print('NewAccountEventProcessor start add  account {} =='.format(account))
+                #print('NewAccountEventProcessor start add  account {} =='.format(account))
 
                 account.save(db_session)
                 # db_session.commit()
@@ -157,7 +157,7 @@ class ReapedAccount(EventProcessor):
                     account.count_reaped = 1
                 account.shard_num = 0
 
-                print('ReapedAccount start add  account {} =='.format(account))
+                #print('ReapedAccount start add  account {} =='.format(account))
 
                 account.save(db_session)
                 # db_session.commit()
