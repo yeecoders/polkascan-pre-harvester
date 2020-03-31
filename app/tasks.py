@@ -253,7 +253,7 @@ def start_init(self):
     for shard in SHARDS_TABLE:
         substrate_url = SHARDS_TABLE[shard]
         substrate = SubstrateInterface(substrate_url)
-        start_block_hash = substrate.get_chain_head()
+        start_block_hash = substrate.get_block_hash(3)
 
         print('== start_init  substrate_url {} ==start_block_hash-{}'.format(substrate_url, start_block_hash))
 
