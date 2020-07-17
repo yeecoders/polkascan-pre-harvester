@@ -1204,26 +1204,9 @@ class PolkascanHarvesterService(BaseService):
         workProofOffset = 2 + 8 + compactLen * 2 + 64 + 64 + 16 + 2
 
         if workProofType.value == 2:
-            dataforextraDataLen = input[workProofOffset:(workProofOffset + 170)]
-
-            extraDataLen = ScaleDecoder.get_decoder_class('Compact<u32>',
-                                                          ScaleBytes(bytearray.fromhex(dataforextraDataLen)))
-            extraDataLen.decode()
-
-            if extraDataLen.value <= 0b00111111:
-                compactLen = 1
-            elif extraDataLen <= 0b0011111111111111:
-                compactLen = 2
-
-            elif extraDataLen.value <= 0b00111111111111111111111111111111:
-                compactLen = 4
-            else:
-                compactLen = 5
-
-            mlen = workProofOffset + compactLen * 2 + extraDataLen.value * 2
-            merkle_root = input[mlen:mlen + 64]
-            print(merkle_root)
-
+           mlen = workProofOffset + 80
+           merkle_root = input[mlen:mlen + 64]
+           print(merkle_root)
         return merkle_root
 
 
