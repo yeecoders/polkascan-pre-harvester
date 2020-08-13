@@ -831,8 +831,14 @@ class PolkascanHarvesterService(BaseService):
                     origin_hash = blake2b(bytearray.fromhex(extrinsic_data.get('params')[1]['value']),
                                           digest_size=32).digest().hex()
 
+                params = extrinsic_data.get('params')
+                dest = ''
+                if params and params[0]["name"] == 'dest':
+                    dest = params[0]["value"]
+
                 model = Extrinsic(
                     block_id=block_id,
+                    extrinsic=extrinsic,
                     extrinsic_idx=extrinsic_idx,
                     extrinsic_hash=extrinsics_decoder.extrinsic_hash,
                     extrinsic_length=extrinsic_data.get('extrinsic_length'),
@@ -852,7 +858,8 @@ class PolkascanHarvesterService(BaseService):
                     call=extrinsic_data.get('call_code'),
                     module_id=extrinsic_data.get('call_module'),
                     call_id=extrinsic_data.get('call_module_function'),
-                    params=extrinsic_data.get('params'),
+                    params=params,
+                    dest=dest,
                     spec_version_id=parent_spec_version,
                     success=int(extrinsic_success),
                     error=int(not extrinsic_success),

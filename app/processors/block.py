@@ -31,7 +31,7 @@ from app.settings import HRP, ACCOUNT_AUDIT_TYPE_NEW, ACCOUNT_AUDIT_TYPE_REAPED,
     DEMOCRACY_REFERENDUM_AUDIT_TYPE_EXECUTED, SUBSTRATE_ADDRESS_TYPE, DEMOCRACY_VOTE_AUDIT_TYPE_NORMAL, \
     DEMOCRACY_VOTE_AUDIT_TYPE_PROXY
 from app.utils.ss58 import ss58_encode, ss58_encode_account_index
-from scalecodec.base import ScaleBytes
+from scalecodec.base import ScaleBytes,ScaleDecoder
 
 from app.processors.base import BlockProcessor
 from scalecodec.block import LogDigest
@@ -46,17 +46,32 @@ class LogBlockProcessor(BlockProcessor):
         self.block.count_log = len(self.block.logs)
         if self.block.count_log != 0:
             for idx, log_data in enumerate(self.block.logs):
-                log_digest = LogDigest(ScaleBytes(log_data))
-                log_digest.decode()
+                if idx == 1:
+                    oy = ScaleDecoder.get_decoder_class('Vec<(SessionKey, u64)>', ScaleBytes('0x' + log_data[28:]))
+                    oy.decode()
+                    for i in range(len(oy.value)):
+                        oy.value[i] = "{'authoritiy': '" + oy.value[i]["col1"] + "', 'weight': " + str(
+                            oy.value[i]["col2"]) + "}"
+                    log = Log(
+                        block_id=self.block.bid,
+                        log_idx=1,
+                        type_id=0,
+                        type='Other',
+                        data=oy.value,
+                        shard_num=self.block.shard_num,
+                    )
+                else:
+                    log_digest = LogDigest(ScaleBytes(log_data))
+                    log_digest.decode()
 
-                log = Log(
-                    block_id=self.block.bid,
-                    log_idx=idx,
-                    type_id=log_digest.index,
-                    type=log_digest.index_value,
-                    data=log_digest.value,
-                    shard_num=self.block.shard_num,
-                )
+                    log = Log(
+                        block_id=self.block.bid,
+                        log_idx=idx,
+                        type_id=log_digest.index,
+                        type=log_digest.index_value,
+                        data=log_digest.value,
+                        shard_num=self.block.shard_num,
+                    )
                 log.save(db_session)
 
     def accumulation_revert(self, db_session):
