@@ -29,28 +29,9 @@ from sqlalchemy import text, func
 from app.models.data import Block, BlockTotal
 from app.models.harvester import Setting, Status
 from app.resources.base import BaseResource
-from app.schemas import load_schema
 from app.processors.converters import PolkascanHarvesterService, BlockAlreadyAdded, BlockIntegrityError
 from substrateinterface import SubstrateInterface
-from app.tasks import init
 from app.settings import SUBSTRATE_RPC_URL, TYPE_REGISTRY
-
-
-class PolkascanStartHarvesterResource(BaseResource):
-
-    # @validate(load_schema('start_harvester'))
-    def on_post(self, req, resp):
-        print(req)
-        task = init('shard.0')
-
-        resp.status = falcon.HTTP_201
-
-        resp.media = {
-            'status': 'success',
-            'data': {
-                'task_id': task
-            }
-        }
 
 
 class PolkascanStopHarvesterResource(BaseResource):
