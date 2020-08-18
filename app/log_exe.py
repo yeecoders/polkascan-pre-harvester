@@ -3,7 +3,6 @@ import os
 curPath = os.path.abspath(os.path.dirname(__file__))
 rootPath = os.path.split(curPath)[0]
 sys.path.append(rootPath)
-
 from app.models.data import Log
 from app.processors.converters import BlockAlreadyAdded
 from substrateinterface import SubstrateInterface
@@ -11,6 +10,14 @@ from app.settings import SHARDS_TABLE, DB_CONNECTION, DEBUG
 from scalecodec.base import ScaleBytes, ScaleDecoder
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy import create_engine, text
+
+
+def check_healthy():
+    for shard in SHARDS_TABLE:
+        substrate_url = SHARDS_TABLE[shard]
+        substrate = SubstrateInterface(substrate_url)
+        block = substrate.get_block_number(None)
+        print('== shard--{}  ===substrate_url###{}==block=={} '.format(shard, substrate_url, block))
 
 
 class BaseLog(object):
@@ -74,5 +81,6 @@ class BaseLog(object):
 
 my = BaseLog()
 
+# my.on_get()
 
-my.on_get()
+check_healthy()
