@@ -44,7 +44,7 @@ from app.models.data import Extrinsic, Block, Event, Runtime, RuntimeModule, Run
 from app.processors.block import *
 from app.utils import bech32
 import json
-
+import app.tasks
 
 class HarvesterCouldNotAddBlock(Exception):
     pass
@@ -635,6 +635,10 @@ class PolkascanHarvesterService(BaseService):
                     # 0x0018020002000400
                     shard_num = dg[10:12]
 
+        # check fork
+        nb = Block.query(self.db_session).filter_by(hash=parent_hash, shard_num=shard_num).count()
+        if nb == 0:
+            app.tasks.dealWithForks.delay(shard_num, block_id, substrate_url)
         # Convert block number to numeric
         if not block_id.isnumeric():
             block_id = int(block_id, 16)
@@ -1249,3 +1253,4 @@ class TestScaleTypes(unittest.TestCase):
                     print(dg[10:12])
 
         self.assertEqual(merkle_root, '53ab6f561d1d034534fa756ed01d309a60d87106ce7dfc3d37af67f8e9bac32f')
+

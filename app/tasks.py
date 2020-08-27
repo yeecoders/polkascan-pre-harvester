@@ -17,24 +17,16 @@
 #  along with Polkascan. If not, see <http://www.gnu.org/licenses/>.
 #
 #  tasks.py
-
-import os
-from time import sleep
 import celery
-from celery.result import AsyncResult
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy.orm import sessionmaker, scoped_session
-from sqlalchemy.sql import func
-
-from app.models.data import Extrinsic, Block, BlockTotal
-from app.models.harvester import Status
+from app.models.data import Extrinsic, Block, Log, Event
 from app.processors.converters import PolkascanHarvesterService, HarvesterCouldNotAddBlock, \
-    HarvesterNotshardParamsError, BlockAlreadyAdded, \
-    BlockIntegrityError
+    HarvesterNotshardParamsError, BlockAlreadyAdded
 from substrateinterface import SubstrateInterface
 
-from app.settings import DB_CONNECTION, DEBUG, SUBSTRATE_RPC_URL, TYPE_REGISTRY, SHARDS_TABLE, NUM
+from app.settings import DB_CONNECTION, DEBUG, TYPE_REGISTRY, SHARDS_TABLE, NUM
 
 CELERY_BROKER = 'redis://redis:6379/0'
 CELERY_BACKEND = 'redis://redis:6379/0'
@@ -268,3 +260,60 @@ def start_init(self):
 
     }
 
+
+@app.task(base=BaseTask, bind=True)
+def dealWithForks(self, shard_num, bid=None, substrate_url=None):
+    print('== dealWithForks  substrate_url* {} *shardnum=*{} *==start_block_num=*{}*'.format(substrate_url, shard_num,
+                                                                                             bid))
+    substrate = SubstrateInterface(substrate_url)
+    # self.session.execute('delete  from data_block where shard_num = %(shard_num)s ',shard_num=shard_num)
+    harvester = PolkascanHarvesterService(self.session, type_registry=TYPE_REGISTRY)
+    harvester.metadata_store = self.metadata_store
+    try:
+        nr = 0
+        min_bid = find(bid, shard_num, substrate)
+        # min_bid = 5
+        # bid = 7
+        if (bid - min_bid) <= 1:
+            return {
+                'result': 'from {} to {} blocks added'.format(min_bid, bid),
+                'status': '(bid - min_bid) <= 1,do nothing!'
+            }
+        self.session.query(Block).filter(Block.shard_num == shard_num, Block.bid > min_bid, Block.bid < bid).delete()
+        self.session.query(Extrinsic).filter(Extrinsic.shard_num == shard_num, Extrinsic.block_id > min_bid, Extrinsic.block_id < bid).delete()
+        self.session.query(Log).filter(Log.shard_num == shard_num, Log.block_id > min_bid, Log.block_id < bid).delete()
+        self.session.query(Event).filter(Event.shard_num == shard_num, Event.block_id > min_bid, Event.block_id < bid).delete()
+
+        for nr in range(min_bid + 1, bid):
+            blocka = harvester.add_block(substrate.get_block_hash(nr), substrate_url)
+            if blocka:
+                print('== Added sucess dealWithForks  substrate_url* {} *shardnum=*{} *==start_block_num=*{}*'.format(
+                    substrate_url,
+                    shard_num,
+                    nr))
+                self.session.commit()
+
+    except BlockAlreadyAdded as e:
+        print('. dealWithForks Skipped {} '.format(nr))
+    except IntegrityError as e:
+        print('.dealWithForks Skipped duplicate {}=={} '.format(nr, e))
+    except Exception as exc:
+        print('!dealWithForks ERROR adding {}'.format(nr))
+        raise self.retry(exc=exc, countdown=60, max_retries=5)
+
+    return {
+        'result': 'from {} to {} blocks added'.format(min_bid, bid),
+        'dealWithForks_status': 'true'
+    }
+
+
+@app.task(base=BaseTask, bind=True)
+def find(self, bid, shard_num, substrate):
+    print('== find params  *shardnum=*{} *==bid=*{}*'.format(shard_num, bid))
+    block_before =  Block.query(self.session).filter_by(shard_num=shard_num, bid=(bid-1)).first()
+    print('== find sql query  *==by bid-1 hash=*{}*'.format(block_before.hash))
+    hash_on = substrate.get_block_hash(bid - 1)
+    if hash_on == block_before.hash:
+        return bid - 1
+    else:
+        return find(self, bid - 1, shard_num, substrate)
