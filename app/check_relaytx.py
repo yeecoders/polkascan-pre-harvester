@@ -4,13 +4,14 @@ import os
 curPath = os.path.abspath(os.path.dirname(__file__))
 rootPath = os.path.split(curPath)[0]
 sys.path.append(rootPath)
-from app.models.data import Log, Block
+from app.models.data import Log, Block, Extrinsic
 from app.processors.converters import BlockAlreadyAdded
 from substrateinterface import SubstrateInterface
 from app.settings import SHARDS_TABLE, DB_CONNECTION, DEBUG
 from scalecodec.base import ScaleBytes, ScaleDecoder
 from sqlalchemy.orm import sessionmaker, scoped_session
-from sqlalchemy import create_engine, text, func
+from sqlalchemy import create_engine, text
+from app.utils import bech32
 
 
 def check_healthy():
@@ -81,22 +82,38 @@ class BaseLog(object):
             substrate_url = SHARDS_TABLE[shard]
             BaseLog.solve(self, '1', '2', substrate_url)
 
-    def count(self):
-        message_count = self.session.query(func.count(Block.id)).filter(
-            Block.coinbase == 'yee1gjjlh3ll709jvdvwvpc0helpw8uh3fdldh3ae3a6xkdm0qu3d4zqg2d5d3').scalar()
-        print('message_count---', message_count)
-        listbl = Block.query(self.session).filter(
-            Block.coinbase == 'yee1gjjlh3ll709jvdvwvpc0helpw8uh3fdldh3ae3a6xkdm0qu3d4zqg2d5d3',
-            Block.fee_reward > 0).all()
-        if len(listbl) > 0:
-            for b in listbl:
-                print(b.fee_reward)
+    def check(self):
+        # Extrinsic.query(self.session).filter(Extrinsic.module_id == 'balances', Extrinsic.call_id == 'transfer',
+        #                                      Block.shard_num == Extrinsic.shard_num,
+        #                                      Extrinsic.block_id > 37926).order_by(
+        #     Extrinsic.block_id.desc())
+
+        items = Extrinsic.query(self.session).join(Block, Extrinsic.block_id == Block.bid).filter(
+            Extrinsic.module_id == 'balances',
+            Extrinsic.call_id == 'transfer',
+            Block.shard_num == Extrinsic.shard_num,
+            Extrinsic.block_id > 38375).order_by(
+            Extrinsic.block_id.desc())
+        # self.session.query(Extrinsic).join(Block, Extrinsic.block_id == Block.bid)
+        print(items)
+        data=[self.serialize_item(item) for item in items],
+
+    def serialize_item(self, item):
+        if item.address is None:
+            return None
+        else:
+            sender = bech32.encode('yee', bytes().fromhex('3abc90b67dadf98f01633ffc6ffc51fe3953b9ce81da4b7b266684897042992c'))
+            # destination = bech32.encode('ye', bytes().fromhex(item.params[0]['value'])),
+
+    def getShard(self):
+        mask = 0x03
+        # shardNum = mask & newUint8Array(bech32.fromWords(bech32.decode(id).words))[31];
+        # return shardNum;
 
 
 my = BaseLog()
 
 # my.on_get()
+my.check()
 
-check_healthy()
-
-my.count()
+# check_healthy()

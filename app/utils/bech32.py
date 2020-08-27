@@ -92,7 +92,7 @@ def bech32_decode(bech: str) -> Tuple[str, Bytes]:
 
     if not bech32_verify_checksum(hrp, data):
         raise Bech32DecodeError('Invalid checksum')
-
+    print(data)
     return hrp, data[:-6]
 
 
@@ -150,10 +150,14 @@ class Bech32DecodeError(Exception):
 
 
 class TestBech32(unittest.TestCase):
-    hrp = 'tyee'
+    hrp = 'yee'
 
     def test_bech32_decode(self):
         #       #tyee1jfakj2rvqym79lmxcmjkraep6tn296deyspd9mkh467u4xgqt3cqkv6lyl
-        address = encode(self.hrp,  bytes().fromhex('927b69286c0137e2ff66c6e561f721d2e6a2e9b92402d2eed7aebdca99005c70'))
+        address = encode(self.hrp, bytes().fromhex('3abc90b67dadf98f01633ffc6ffc51fe3953b9ce81da4b7b266684897042992c'))
         print(address)
-        self.assertEqual(address, 'tyee1jfakj2rvqym79lmxcmjkraep6tn296deyspd9mkh467u4xgqt3cqkv6lyl')
+
+
+address = encode('yee', bytes().fromhex('3abc90b67dadf98f01633ffc6ffc51fe3953b9ce81da4b7b266684897042992c'))
+print(address)
+print(bech32_decode('yee1827fpdna4huc7qtr8l7xllz3lcu48wwws8dyk7exv6zgjuzznykq6lpfgt'))

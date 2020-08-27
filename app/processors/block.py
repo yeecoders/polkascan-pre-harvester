@@ -47,21 +47,22 @@ class LogBlockProcessor(BlockProcessor):
         if self.block.count_log != 0:
             for idx, log_data in enumerate(self.block.logs):
                 if idx == 1:
-                    num = log_data.index('03000000000000000000')
-                    final = '0x' + log_data[20 + num:]
-                    oy = ScaleDecoder.get_decoder_class('Vec<(SessionKey, u64)>', ScaleBytes(final))
-                    oy.decode()
-                    for i in range(len(oy.value)):
-                        oy.value[i] = "{'authoritiy': '" + oy.value[i]["col1"] + "', 'weight': " + str(
-                            oy.value[i]["col2"]) + "}"
-                    log = Log(
-                        block_id=self.block.bid,
-                        log_idx=1,
-                        type_id=0,
-                        type='Other',
-                        data=oy.value,
-                        shard_num=self.block.shard_num,
-                    )
+                    # num = log_data.index('03000000000000000000')
+                    # final = '0x' + log_data[20 + num:]
+                    # oy = ScaleDecoder.get_decoder_class('Vec<(SessionKey, u64)>', ScaleBytes(final))
+                    # oy.decode()
+                    # for i in range(len(oy.value)):
+                    #     oy.value[i] = "{'authoritiy': '" + oy.value[i]["col1"] + "', 'weight': " + str(
+                    #         oy.value[i]["col2"]) + "}"
+                    # log = Log(
+                    #     block_id=self.block.bid,
+                    #     log_idx=1,
+                    #     type_id=0,
+                    #     type='Other',
+                    #     data=oy.value,
+                    #     shard_num=self.block.shard_num,
+                    # )
+                    print('')
                 else:
                     log_digest = LogDigest(ScaleBytes(log_data))
                     log_digest.decode()
