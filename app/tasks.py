@@ -282,7 +282,7 @@ def dealWithForks(self, shard_num, bid=None, substrate_url=None):
         # bid = 7
         if (bid - min_bid) <= 1:
             return {
-                'result': 'from {} to {} blocks added'.format(min_bid, bid),
+                'result': 'from {} to {} blocks check by shardnum of {}'.format(min_bid, bid, shard_num),
                 'status': '(bid - min_bid) <= 1,do nothing!'
             }
         self.session.query(Block).filter(Block.shard_num == shard_num, Block.bid > min_bid, Block.bid < bid).delete()
@@ -308,7 +308,7 @@ def dealWithForks(self, shard_num, bid=None, substrate_url=None):
         raise self.retry(exc=exc, countdown=60, max_retries=5)
 
     return {
-        'result': 'from {} to {} blocks added'.format(min_bid, bid),
+        'result': 'from {} to {} blocks check by shardnum of {}'.format(min_bid, bid, shard_num),
         'dealWithForks_status': 'true'
     }
 
