@@ -54,11 +54,11 @@ app.conf.beat_schedule = {
         'schedule': 13.0,
         'args': ("shard.3",)
     },
-    'start_init-5-seconds': {
-        'task': 'app.tasks.start_init',
-        'schedule': 6.0,
-        'args': ()
-    },
+    # 'start_init-5-seconds': {
+    #     'task': 'app.tasks.start_init',
+    #     'schedule': 6.0,
+    #     'args': ()
+    # },
 }
 #
 # app.conf.beat_schedule = {
@@ -190,7 +190,6 @@ def start_harvester(self, check_gaps=False, shard=None):
 
     print('start block_nr  {} =='.format(block_nr))
     print('start max_block  {} =='.format(max_block.bid))
-
     if block_nr - max_block.bid < 10:
         r = block_nr - max_block.bid
 
@@ -221,9 +220,9 @@ def start_harvester(self, check_gaps=False, shard=None):
     })
 
     return {
-        'result': 'Harvester job started',
+        'result': 'Yee data Synchronization job SUCCESS',
         'block_sets': block_sets,
-        'sequencer_task_id': self.request.id
+        'result': 'Synch data  from {} to {} blocks check by shardnum of {}'.format(max_block.bid+1, r + max_block.bid+1, shard)
 
     }
 
@@ -282,7 +281,7 @@ def dealWithForks(self, shard_num, bid=None, substrate_url=None):
         # bid = 7
         if (bid - min_bid) <= 1:
             return {
-                'result': 'from {} to {} blocks check by shardnum of {}'.format(min_bid, bid, shard_num),
+                'result': 'dealWithForks from {} to {} blocks check by shardnum of {}'.format(min_bid, bid, shard_num),
                 'status': '(bid - min_bid) <= 1,do nothing!'
             }
         self.session.query(Block).filter(Block.shard_num == shard_num, Block.bid > min_bid, Block.bid < bid).delete()
@@ -308,7 +307,7 @@ def dealWithForks(self, shard_num, bid=None, substrate_url=None):
         raise self.retry(exc=exc, countdown=60, max_retries=5)
 
     return {
-        'result': 'from {} to {} blocks check by shardnum of {}'.format(min_bid, bid, shard_num),
+        'result': 'dealWithForks from {} to {} blocks check by shardnum of {}'.format(min_bid, bid, shard_num),
         'dealWithForks_status': 'true'
     }
 
