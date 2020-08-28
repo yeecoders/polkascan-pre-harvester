@@ -263,6 +263,12 @@ def start_init(self):
 
 @app.task(base=BaseTask, bind=True)
 def dealWithForks(self, shard_num, bid=None, substrate_url=None):
+    shard_num = str(shard_num)
+    if len(shard_num) == 2:
+        shard_num = int(shard_num[1:2])
+        print(shard_num)
+    else:
+        shard_num = int(shard_num)
     print('== dealWithForks  substrate_url* {} *shardnum=*{} *==start_block_num=*{}*'.format(substrate_url, shard_num,
                                                                                              bid))
     substrate = SubstrateInterface(substrate_url)
@@ -316,4 +322,5 @@ def find(self, bid, shard_num, substrate):
     if hash_on == block_before.hash:
         return bid - 1
     else:
-        return find(self, bid - 1, shard_num, substrate)
+        return find(bid - 1, shard_num, substrate)
+

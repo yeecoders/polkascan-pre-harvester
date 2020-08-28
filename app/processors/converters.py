@@ -635,14 +635,13 @@ class PolkascanHarvesterService(BaseService):
                     # 0x0018020002000400
                     shard_num = dg[10:12]
 
+        # Convert block number to numeric
+        if not block_id.isnumeric():
+            block_id = int(block_id, 16)
         # check fork
         nb = Block.query(self.db_session).filter_by(hash=parent_hash, shard_num=shard_num).count()
         if nb == 0:
             app.tasks.dealWithForks.delay(shard_num, block_id, substrate_url)
-        # Convert block number to numeric
-        if not block_id.isnumeric():
-            block_id = int(block_id, 16)
-
         # ==== Get block runtime from Substrate ==================
         json_runtime_version = substrate.get_block_runtime_version()
 
